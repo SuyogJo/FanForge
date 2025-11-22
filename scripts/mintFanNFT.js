@@ -20,13 +20,13 @@ async function main() {
   const DynamicFanNFT = await hre.ethers.getContractFactory("DynamicFanNFT");
   const fanNFT = DynamicFanNFT.attach(fanNFTAddress);
 
-  // Get user address and team name from command line
-  const userAddress = process.argv[2];
-  const teamName = process.argv[3] || "My Team";
+  // Get user address and team name from environment variables
+  const userAddress = process.env.USER_ADDRESS;
+  const teamName = process.env.TEAM_NAME || "My Team";
 
   if (!userAddress) {
-    console.error("Usage: npx hardhat run scripts/mintFanNFT.js --network spicy <userAddress> [teamName]");
-    console.error("Example: npx hardhat run scripts/mintFanNFT.js --network spicy 0x123... \"Lakers\"");
+    console.error("Usage: USER_ADDRESS=0x... [TEAM_NAME=\"Team Name\"] npx hardhat run scripts/mintFanNFT.js --network spicy");
+    console.error("Example: USER_ADDRESS=0x123... TEAM_NAME=\"Lakers\" npx hardhat run scripts/mintFanNFT.js --network spicy");
     process.exit(1);
   }
 

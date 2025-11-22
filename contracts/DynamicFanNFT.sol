@@ -63,8 +63,32 @@ contract DynamicFanNFT is ERC721URIStorage, Ownable {
      * @dev Update fan stats after a prediction result
      */
     function updateFanStats(address fan, bool isCorrect) external {
-        require(msg.sender == predictionManager, "Only PredictionManager can update");
+        require(msg.sender == predictionManager || msg.sender == owner(), "Only PredictionManager or owner can update");
         
+        uint256 tokenId = userToTokenId[fan];
+        require(tokenIdExists[tokenId], "Fan NFT does not exist");
+        
+        FanStats storage stats = fanStats[tokenId];
+        stats.totalPredictions++;
+        
+        if (isCorrect) {
+            stats.correctPredictions++;
+            
+            // Level up logic: every 3 correct predictions = +1 level
+            uint256 newLevel = (stats.correctPredictions / 3) + 1;
+            if (newLevel > stats.level) {
+                stats.level = newLevel;
+                _setTokenURI(tokenId, string(abi.encodePacked(baseURI, "/", _toString(newLevel), ".json")));
+                emit NFTLevelUp(tokenId, newLevel, fan);
+            }
+        }
+    }
+
+    /**
+     * @dev Demo function: Manually update fan stats (admin only, for demos)
+     * This allows the contract owner to manually update stats for demo purposes
+     */
+    function demoUpdateFanStats(address fan, bool isCorrect) external onlyOwner {
         uint256 tokenId = userToTokenId[fan];
         require(tokenIdExists[tokenId], "Fan NFT does not exist");
         
