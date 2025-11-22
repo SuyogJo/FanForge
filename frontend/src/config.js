@@ -1,7 +1,7 @@
 // Contract addresses - Update these after deployment
 export const CONTRACT_ADDRESSES = {
   CardPackFactory: "0xe2764c8E76FdC1FB5660452F57B12913Ff2bc533", // Update after deployment
-  PredictionManager: "0x942E28eF94DE197f26D784408010BbF7019Af331", // Update after deployment
+  PredictionManager: "0xaa21Cb696d10AdEC2e3aB8e2233F0E0a4D968E4f", // Update after deployment
   DynamicFanNFT: "0x685B23A3AB0eBee8fBaB0D55108853BFCC27f51d" // Update after deployment
 };
 

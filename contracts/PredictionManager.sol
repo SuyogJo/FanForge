@@ -2,6 +2,9 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
+import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
+import "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import "./CardPackFactory.sol";
 import "./DynamicFanNFT.sol";
 
@@ -9,7 +12,7 @@ import "./DynamicFanNFT.sol";
  * @title PredictionManager
  * @dev Manages sports match predictions using cards
  */
-contract PredictionManager is Ownable {
+contract PredictionManager is Ownable, ERC165, IERC1155Receiver {
     CardPackFactory public cardPackFactory;
     DynamicFanNFT public fanNFT;
     
@@ -245,6 +248,33 @@ contract PredictionManager is Ownable {
      */
     function getMatchPredictions(uint256 matchId) external view returns (Prediction[] memory) {
         return matchPredictions[matchId];
+    }
+
+    /**
+     * @dev ERC1155 Receiver implementation
+     */
+    function onERC1155Received(
+        address,
+        address,
+        uint256,
+        uint256,
+        bytes memory
+    ) public pure override returns (bytes4) {
+        return this.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(
+        address,
+        address,
+        uint256[] memory,
+        uint256[] memory,
+        bytes memory
+    ) public pure override returns (bytes4) {
+        return this.onERC1155BatchReceived.selector;
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165) returns (bool) {
+        return interfaceId == type(IERC1155Receiver).interfaceId || super.supportsInterface(interfaceId);
     }
 }
 

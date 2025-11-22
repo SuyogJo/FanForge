@@ -172,25 +172,38 @@ function App() {
         signer
       );
       
-      // Get all cards user owns (simplified - check first 20 card IDs)
+      // Get all cards user owns - check up to 30 card IDs to be safe
       const userCards = [];
-      for (let i = 1; i <= 20; i++) {
+      for (let i = 1; i <= 30; i++) {
         try {
           const balance = await cardPackFactory.balanceOf(address, i);
           if (balance > 0) {
-            const card = await cardPackFactory.getCard(i);
-            userCards.push({
-              id: i,
-              name: card.name,
-              type: card.cardType === 0 ? "Player" : "MatchEvent",
-              rarity: card.rarity.toString(),
-              balance: balance.toString()
-            });
+            try {
+              const card = await cardPackFactory.getCard(i);
+              userCards.push({
+                id: i,
+                name: card.name,
+                type: card.cardType === 0 ? "Player" : "MatchEvent",
+                rarity: card.rarity.toString(),
+                balance: balance.toString()
+              });
+            } catch (cardErr) {
+              console.warn(`Card ${i} exists but getCard() failed:`, cardErr);
+              // Still add it with basic info
+              userCards.push({
+                id: i,
+                name: `Card #${i}`,
+                type: "Unknown",
+                rarity: "1",
+                balance: balance.toString()
+              });
+            }
           }
         } catch (e) {
           // Card doesn't exist, skip
         }
       }
+      console.log(`Loaded ${userCards.length} cards for user`);
       setCards(userCards);
       
       // Load matches
@@ -205,17 +218,41 @@ function App() {
       for (let i = 1; i <= matchCount; i++) {
         try {
           const match = await predictionManager.matches(i);
+          // Status is returned as uint8 (0 = Pending, 1 = Settled)
+          // The match struct returns: [matchId, teamA, teamB, timestamp, status, outcome]
+          // Status is at index 4
+          let statusNum;
+          if (Array.isArray(match)) {
+            // If returned as array, status is at index 4
+            statusNum = match[4];
+          } else {
+            // If returned as object, access .status
+            statusNum = match.status;
+          }
+          
+          // Convert to number if it's a BigNumber or other format
+          if (typeof statusNum === 'object' && statusNum.toString) {
+            statusNum = parseInt(statusNum.toString());
+          } else {
+            statusNum = parseInt(statusNum);
+          }
+          
+          console.log(`Match ${i}: ${match.teamA} vs ${match.teamB}, Status: ${statusNum} (${statusNum === 0 ? 'Pending' : 'Settled'})`);
+          
           matchList.push({
             id: i,
             teamA: match.teamA,
             teamB: match.teamB,
-            timestamp: match.timestamp.toString(),
-            status: match.status === 0 ? "Pending" : "Settled"
+            timestamp: match.timestamp?.toString() || (Array.isArray(match) ? match[3].toString() : "0"),
+            status: statusNum === 0 ? "Pending" : "Settled",
+            statusNum: statusNum
           });
         } catch (e) {
+          console.error(`Error loading match ${i}:`, e);
           // Match doesn't exist
         }
       }
+      console.log("Loaded matches:", matchList);
       setMatches(matchList);
       
       // Load fan stats
@@ -294,25 +331,138 @@ function App() {
         signer
       );
       
+      // Validate match exists
+      try {
+        const match = await predictionManager.matches(selectedMatch);
+        
+        // Handle match struct - could be array or object
+        let matchId, statusNum;
+        if (Array.isArray(match)) {
+          matchId = match[0];
+          statusNum = match[4];
+        } else {
+          matchId = match.matchId;
+          statusNum = match.status;
+        }
+        
+        if (matchId.toString() === "0") {
+          setError(`Match ${selectedMatch} does not exist on-chain. Please create the match first using the admin script.`);
+          setLoading(false);
+          return;
+        }
+        
+        // Convert status to number
+        if (typeof statusNum === 'object' && statusNum.toString) {
+          statusNum = parseInt(statusNum.toString());
+        } else {
+          statusNum = parseInt(statusNum);
+        }
+        
+        console.log(`Validating match ${selectedMatch}: status = ${statusNum}`);
+        
+        if (statusNum !== 0) {
+          setError("This match has already been settled. Please select a pending match.");
+          setLoading(false);
+          return;
+        }
+      } catch (matchErr) {
+        console.error("Match validation error:", matchErr);
+        setError(`Match ${selectedMatch} does not exist. Please create the match first.`);
+        setLoading(false);
+        return;
+      }
+      
+      // Validate user owns all selected cards
+      console.log("Validating card ownership for cards:", selectedCards);
+      for (const cardId of selectedCards) {
+        try {
+          // Check if card exists by trying to get card info
+          let cardExists = false;
+          try {
+            const card = await cardPackFactory.getCard(cardId);
+            cardExists = true;
+            console.log(`Card ${cardId} exists: ${card.name}`);
+          } catch (e) {
+            console.error(`Card ${cardId} does not exist:`, e);
+            setError(`Card ID ${cardId} does not exist. Please select valid cards from your collection.`);
+            setLoading(false);
+            return;
+          }
+          
+          if (!cardExists) {
+            setError(`Card ID ${cardId} does not exist. Please select valid cards.`);
+            setLoading(false);
+            return;
+          }
+          
+          // Check balance
+          const balance = await cardPackFactory.balanceOf(account, cardId);
+          console.log(`Card ${cardId} balance: ${balance.toString()}`);
+          
+          if (balance.toString() === "0" || balance.toString() === "0x0") {
+            setError(`You don't own card ID ${cardId}. Please select cards you own from your collection.`);
+            setLoading(false);
+            return;
+          }
+        } catch (cardErr) {
+          console.error(`Error checking card ${cardId}:`, cardErr);
+          setError(`Error validating card ID ${cardId}: ${cardErr.message}. Please refresh and try again.`);
+          setLoading(false);
+          return;
+        }
+      }
+      
+      console.log("All cards validated successfully");
+      
+      // Check and set approval
+      const predictionManagerAddress = CONTRACT_ADDRESSES.PredictionManager;
+      console.log("Checking approval for:", predictionManagerAddress);
+      
       const isApproved = await cardPackFactory.isApprovedForAll(
         account,
-        CONTRACT_ADDRESSES.PredictionManager
+        predictionManagerAddress
       );
+      
+      console.log("Is approved:", isApproved);
       
       if (!isApproved) {
         setSuccess("Approving cards for prediction...");
+        console.log("Requesting approval...");
         const approveTx = await cardPackFactory.setApprovalForAll(
-          CONTRACT_ADDRESSES.PredictionManager,
+          predictionManagerAddress,
           true
         );
-        await approveTx.wait();
+        console.log("Approval transaction sent:", approveTx.hash);
+        const approveReceipt = await approveTx.wait();
+        console.log("Approval confirmed:", approveReceipt.transactionHash);
+        
+        // Double-check approval was set
+        const isApprovedNow = await cardPackFactory.isApprovedForAll(
+          account,
+          predictionManagerAddress
+        );
+        console.log("Approval confirmed, isApproved:", isApprovedNow);
+        
+        if (!isApprovedNow) {
+          setError("Approval failed. Please try again.");
+          setLoading(false);
+          return;
+        }
       }
       
+      console.log(`Submitting prediction: Match ${selectedMatch}, Cards: [${selectedCards.join(", ")}]`);
+      
+      // Convert card IDs to numbers if they're strings
+      const cardIds = selectedCards.map(id => typeof id === 'string' ? parseInt(id) : id);
+      
       const tx = await predictionManager.submitPrediction(
-        selectedMatch,
-        selectedCards
+        parseInt(selectedMatch),
+        cardIds
       );
-      await tx.wait();
+      
+      console.log("Transaction sent, waiting for confirmation...");
+      const receipt = await tx.wait();
+      console.log("Transaction confirmed:", receipt.transactionHash);
       
       setSuccess("Prediction submitted!");
       setSelectedCards([]);
@@ -320,7 +470,25 @@ function App() {
       await loadUserData(signer, account);
       setLoading(false);
     } catch (err) {
-      setError(err.message);
+      console.error("Prediction error:", err);
+      let errorMsg = err.message;
+      
+      // Try to decode common errors
+      if (err.data) {
+        if (err.data.includes("0x57f447ce") || err.reason?.includes("execution reverted")) {
+          errorMsg = "Transaction failed. Possible reasons:\n" +
+            "1. Match doesn't exist on-chain (create it first)\n" +
+            "2. You don't own the selected cards\n" +
+            "3. Cards are already locked in another prediction\n" +
+            "4. Match is already settled";
+        }
+      }
+      
+      if (err.reason) {
+        errorMsg = err.reason;
+      }
+      
+      setError(errorMsg);
       setLoading(false);
     }
   };
@@ -404,24 +572,28 @@ function App() {
             {/* Submit Prediction Section */}
             <div className="card">
               <h2>Submit Prediction</h2>
+              <p style={{ fontSize: "14px", color: "#666", marginBottom: "12px" }}>
+                <strong>Note:</strong> Hardcoded matches (1-4) are for UI only. You must create matches on-chain first using the admin script.
+              </p>
               <select
                 value={selectedMatch}
                 onChange={(e) => setSelectedMatch(e.target.value)}
               >
                 <option value="">Select a match</option>
-                {/* Show hardcoded matches first, then loaded matches */}
-                {hardcodedMatches.map(match => (
-                  <option key={match.id} value={match.id}>
-                    {match.teamA} vs {match.teamB}
-                  </option>
-                ))}
+                {/* Show loaded matches first (these exist on-chain) */}
                 {matches
-                  .filter(m => m.status === "Pending")
+                  .filter(m => m.status === "Pending" || m.statusNum === 0)
                   .map(match => (
                     <option key={match.id} value={match.id}>
-                      {match.teamA} vs {match.teamB}
+                      {match.teamA} vs {match.teamB} (Match #{match.id})
                     </option>
                   ))}
+                {/* Show hardcoded matches as fallback (may not exist on-chain) */}
+                {matches.filter(m => m.status === "Pending").length === 0 && hardcodedMatches.map(match => (
+                  <option key={match.id} value={match.id}>
+                    {match.teamA} vs {match.teamB} (May not exist - create first!)
+                  </option>
+                ))}
               </select>
               
               {selectedCards.length > 0 && (
