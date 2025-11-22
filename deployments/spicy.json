@@ -1,0 +1,11 @@
+{
+  "network": "spicy",
+  "chainId": "88882",
+  "deployer": "0xE626779fdab19A728FF8454f7B56934d7952De57",
+  "contracts": {
+    "CardPackFactory": "0xe2764c8E76FdC1FB5660452F57B12913Ff2bc533",
+    "DynamicFanNFT": "0x685B23A3AB0eBee8fBaB0D55108853BFCC27f51d",
+    "PredictionManager": "0x942E28eF94DE197f26D784408010BbF7019Af331"
+  },
+  "timestamp": "2024-11-22T00:00:00.000Z"
+}

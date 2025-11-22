@@ -1,0 +1,16 @@
+{
+  "name": "FanForge Fan NFT - Level 5",
+  "description": "A legendary fan with masterful prediction abilities! Unlock exclusive rewards!",
+  "image": "https://fanforge.com/images/nft/level5.png",
+  "attributes": [
+    {
+      "trait_type": "Level",
+      "value": 5
+    },
+    {
+      "trait_type": "Status",
+      "value": "Legendary Fan"
+    }
+  ]
+}
+

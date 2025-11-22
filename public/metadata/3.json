@@ -1,0 +1,16 @@
+{
+  "name": "FanForge Fan NFT - Level 3",
+  "description": "A proven fan with consistent accurate predictions!",
+  "image": "https://fanforge.com/images/nft/level3.png",
+  "attributes": [
+    {
+      "trait_type": "Level",
+      "value": 3
+    },
+    {
+      "trait_type": "Status",
+      "value": "Proven Fan"
+    }
+  ]
+}
+

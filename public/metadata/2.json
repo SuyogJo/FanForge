@@ -1,0 +1,16 @@
+{
+  "name": "FanForge Fan NFT - Level 2",
+  "description": "A rising fan with some successful predictions under their belt!",
+  "image": "https://fanforge.com/images/nft/level2.png",
+  "attributes": [
+    {
+      "trait_type": "Level",
+      "value": 2
+    },
+    {
+      "trait_type": "Status",
+      "value": "Rising Fan"
+    }
+  ]
+}
+

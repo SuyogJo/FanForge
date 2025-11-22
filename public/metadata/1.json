@@ -1,0 +1,16 @@
+{
+  "name": "FanForge Fan NFT - Level 1",
+  "description": "A dedicated fan just starting their journey. Level up by making accurate predictions!",
+  "image": "https://fanforge.com/images/nft/level1.png",
+  "attributes": [
+    {
+      "trait_type": "Level",
+      "value": 1
+    },
+    {
+      "trait_type": "Status",
+      "value": "Rookie Fan"
+    }
+  ]
+}
+
