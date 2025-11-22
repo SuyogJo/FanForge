@@ -7,6 +7,8 @@ import { CONTRACT_ADDRESSES, NETWORK_CONFIG } from './config';
 // For now, we'll use minimal interfaces
 const CARD_PACK_FACTORY_ABI = [
   "function openPack() payable",
+  "function packPrice() view returns (uint256)",
+  "function cardCount() view returns (uint256)",
   "function balanceOf(address, uint256) view returns (uint256)",
   "function uri(uint256) view returns (string)",
   "function getCard(uint256) view returns (tuple(uint8 cardType, string name, string description, uint256 rarity))",
@@ -33,6 +35,35 @@ const FAN_NFT_ABI = [
   "function owner() view returns (address)"
 ];
 
+// Pre-loaded player images (defined outside component for better performance)
+const playerImages = {
+  "Tom Brady": "https://upload.wikimedia.org/wikipedia/commons/b/b0/Tom_Brady_WFT-Buccaneers_NOV2021_%28cropped%29.jpg",
+  "Kylian Mbappe": "https://img.olympics.com/images/image/private/t_1-1_300/f_auto/primary/ron2ny1sxmnrrqlxgnak",
+  "Lionel Messi": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQhvt0OO_d-npPtCdNF1_0DLYnYT5Y40W41Kw&s",
+  "Cristiano Ronaldo": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Cristiano_Ronaldo_Portugal.jpg/250px-Cristiano_Ronaldo_Portugal.jpg",
+  "LeBron James": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSgnIMRGEwMOt9_sgs4lriBD3fvNaWKyVrC4Q&s",
+  "Stephen Curry": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Stephen_Curry_shooting.jpg/250px-Stephen_Curry_shooting.jpg",
+  "Patrick Mahomes": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR7vhanTxYBSfJv8c87WdgDsZZYQ-JnRUYMag&s",
+  "Aaron Rodgers": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Aaron_Rodgers_Packers_OCT2021_%28cropped%29.jpg/250px-Aaron_Rodgers_Packers_OCT2021_%28cropped%29.jpg"
+};
+
+// Pre-loaded match event images (from assets folder)
+// Mapping card names from contract to image file names
+const matchEventImages = {
+  "Red Card": "/assets/red_card.jpeg",
+  "More Than 4 Goals": "/assets/more_than_4_points.jpeg", // Note: file is "more_than_4_points" but card is "More Than 4 Goals"
+  "Fight Breaks Out": "/assets/fight_breaks_out.jpeg",
+  "More Than 4 Slap Shots": "/assets/slap_shots.jpeg", // Note: file is "slap_shots" but card is "More Than 4 Slap Shots"
+  "Touchdown Pass 40+ Yards": "/assets/touchdown_pass_40_yards.jpeg",
+  "Hat Trick": "/assets/hat_trick.jpeg",
+  "Overtime": "/assets/overtime.jpeg",
+  "Penalty Kick": "/assets/penalty_kick.jpeg"
+};
+
+// Debug: Log all image keys
+console.log("Available player images:", Object.keys(playerImages));
+console.log("Available match event images:", Object.keys(matchEventImages));
+
 function App() {
   const [provider, setProvider] = useState(null);
   const [signer, setSigner] = useState(null);
@@ -49,6 +80,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [openedCard, setOpenedCard] = useState(null);
+  const [showCardModal, setShowCardModal] = useState(false);
 
   // Hardcoded matches for testing
   const hardcodedMatches = [
@@ -57,6 +90,50 @@ function App() {
     { id: 3, teamA: "Patriots", teamB: "Chiefs", status: "Pending" },
     { id: 4, teamA: "PSG", teamB: "Manchester City", status: "Pending" }
   ];
+
+  // Format card type for display (add space in MatchEvent)
+  const formatCardType = (cardType) => {
+    if (cardType === "MatchEvent") {
+      return "Match Event";
+    }
+    return cardType;
+  };
+
+  // Generate image URL for cards
+  const getCardImageUrl = (cardName, cardType) => {
+    if (cardType === "Player") {
+      // Check for exact match first
+      if (playerImages[cardName]) {
+        console.log(`Found image for player: ${cardName}`, playerImages[cardName]);
+        return playerImages[cardName];
+      }
+      // Try case-insensitive match
+      const lowerCardName = cardName.toLowerCase();
+      const matchingKey = Object.keys(playerImages).find(key => key.toLowerCase() === lowerCardName);
+      if (matchingKey) {
+        console.log(`Found case-insensitive match: ${cardName} -> ${matchingKey}`, playerImages[matchingKey]);
+        return playerImages[matchingKey];
+      }
+      console.warn(`No image found for player: ${cardName}`);
+      return "";
+    } else if (cardType === "MatchEvent") {
+      // Check for exact match first
+      if (matchEventImages[cardName]) {
+        console.log(`Found image for match event: ${cardName}`, matchEventImages[cardName]);
+        return matchEventImages[cardName];
+      }
+      // Try case-insensitive match
+      const lowerCardName = cardName.toLowerCase();
+      const matchingKey = Object.keys(matchEventImages).find(key => key.toLowerCase() === lowerCardName);
+      if (matchingKey) {
+        console.log(`Found case-insensitive match: ${cardName} -> ${matchingKey}`, matchEventImages[matchingKey]);
+        return matchEventImages[matchingKey];
+      }
+      console.warn(`No image found for match event: ${cardName}`);
+      return "";
+    }
+    return "";
+  };
 
   // Connect wallet
   const connectWallet = async () => {
@@ -188,10 +265,26 @@ function App() {
           if (balance > 0) {
             try {
               const card = await cardPackFactory.getCard(i);
+              // CardType enum: 0 = Player, 1 = MatchEvent
+              // Handle BigInt (0n, 1n) from ethers.js
+              let cardTypeValue = card.cardType;
+              if (typeof card.cardType === 'bigint') {
+                cardTypeValue = card.cardType.toString();
+              } else if (card.cardType && typeof card.cardType === 'object' && 'toString' in card.cardType) {
+                cardTypeValue = card.cardType.toString();
+              } else if (typeof card.cardType === 'number') {
+                cardTypeValue = card.cardType.toString();
+              }
+              
+              // Parse cardType - 0 = Player, 1 = MatchEvent
+              const cardType = (cardTypeValue === "0" || cardTypeValue === 0 || Number(cardTypeValue) === 0) ? "Player" : "MatchEvent";
+              
+              console.log(`Card ${i}: ${card.name}, cardType raw:`, card.cardType, `cardTypeValue:`, cardTypeValue, `Parsed as: ${cardType}`);
+              
               userCards.push({
                 id: i,
                 name: card.name,
-                type: card.cardType === 0 ? "Player" : "MatchEvent",
+                type: cardType,
                 rarity: card.rarity.toString(),
                 balance: balance.toString()
               });
@@ -254,10 +347,17 @@ function App() {
                 for (const cardId of pred.cardIds) {
                   try {
                     const card = await cardPackFactory.getCard(cardId);
+                    let cardTypeValue = card.cardType;
+                    if (typeof card.cardType === 'bigint') {
+                      cardTypeValue = card.cardType.toString();
+                    } else if (card.cardType && typeof card.cardType === 'object' && 'toString' in card.cardType) {
+                      cardTypeValue = card.cardType.toString();
+                    }
+                    const cardType = (cardTypeValue === "0" || cardTypeValue === 0 || Number(cardTypeValue) === 0) ? "Player" : "MatchEvent";
                     cardDetails.push({
                       id: cardId.toString(),
                       name: card.name,
-                      type: card.cardType === 0 ? "Player" : "MatchEvent",
+                      type: cardType,
                       rarity: card.rarity.toString()
                     });
                   } catch (e) {
@@ -485,15 +585,104 @@ function App() {
         signer
       );
       
-      const packPrice = ethers.parseEther("0.01");
+      // Get the actual pack price from the contract
+      let packPrice;
+      try {
+        packPrice = await cardPackFactory.packPrice();
+      } catch (e) {
+        // Fallback to default if packPrice() doesn't exist in ABI
+        packPrice = ethers.parseEther("0.01");
+      }
+      
+      // Check user balance
+      const balance = await provider.getBalance(account);
+      if (balance < packPrice) {
+        throw new Error(`Insufficient balance. Need ${ethers.formatEther(packPrice)} CHZ, but you have ${ethers.formatEther(balance)} CHZ`);
+      }
+      
+      // Estimate gas first to catch revert reasons
+      try {
+        await cardPackFactory.openPack.estimateGas({ value: packPrice });
+      } catch (estimateError) {
+        // Try to extract revert reason
+        const errorMessage = estimateError.reason || estimateError.message || "Transaction would revert";
+        throw new Error(`Cannot open pack: ${errorMessage}. Make sure you have enough CHZ and the contract is properly initialized.`);
+      }
+      
       const tx = await cardPackFactory.openPack({ value: packPrice });
-      await tx.wait();
+      const receipt = await tx.wait();
+      
+      // Get card details from event in receipt
+      let cardData = null;
+      if (receipt.logs && receipt.logs.length > 0) {
+        try {
+          // Find PackOpened event in logs
+          for (let log of receipt.logs) {
+            try {
+              const parsedLog = cardPackFactory.interface.parseLog(log);
+              if (parsedLog && parsedLog.name === "PackOpened") {
+                cardData = {
+                  cardId: parsedLog.args.cardId.toString(),
+                  cardType: parsedLog.args.cardType,
+                  name: parsedLog.args.name,
+                  rarity: parsedLog.args.rarity.toString()
+                };
+                break;
+              }
+            } catch (e) {
+              // Not the event we're looking for, continue
+            }
+          }
+        } catch (parseErr) {
+          console.warn("Could not parse event from receipt:", parseErr);
+        }
+      }
+      
+      // If we have card data, show modal
+      if (cardData) {
+        try {
+          const cardDetails = await cardPackFactory.getCard(cardData.cardId);
+          let cardTypeValue = cardData.cardType;
+          if (typeof cardData.cardType === 'bigint') {
+            cardTypeValue = cardData.cardType.toString();
+          } else if (cardData.cardType && typeof cardData.cardType === 'object' && 'toString' in cardData.cardType) {
+            cardTypeValue = cardData.cardType.toString();
+          }
+          const cardType = (cardTypeValue === "0" || cardTypeValue === 0 || Number(cardTypeValue) === 0) ? "Player" : "MatchEvent";
+          setOpenedCard({
+            id: cardData.cardId,
+            name: cardData.name,
+            type: cardType,
+            rarity: cardData.rarity,
+            description: cardDetails.description
+          });
+          setShowCardModal(true);
+        } catch (cardErr) {
+          // Still show modal with basic info
+          let cardTypeValue = cardData.cardType;
+          if (typeof cardData.cardType === 'bigint') {
+            cardTypeValue = cardData.cardType.toString();
+          } else if (cardData.cardType && typeof cardData.cardType === 'object' && 'toString' in cardData.cardType) {
+            cardTypeValue = cardData.cardType.toString();
+          }
+          const cardType = (cardTypeValue === "0" || cardTypeValue === 0 || Number(cardTypeValue) === 0) ? "Player" : "MatchEvent";
+          setOpenedCard({
+            id: cardData.cardId,
+            name: cardData.name,
+            type: cardType,
+            rarity: cardData.rarity,
+            description: ""
+          });
+          setShowCardModal(true);
+        }
+      }
       
       setSuccess("Pack opened! Check your cards.");
       await loadUserData(signer, account);
       setLoading(false);
     } catch (err) {
-      setError(err.message);
+      console.error("Open pack error:", err);
+      setError(err.message || "Failed to open pack. Please try again.");
       setLoading(false);
     }
   };
@@ -726,6 +915,23 @@ function App() {
     }
   };
 
+  // Preload player and match event images on component mount
+  useEffect(() => {
+    const preloadImages = () => {
+      // Preload player images
+      Object.values(playerImages).forEach((imageUrl) => {
+        const img = new Image();
+        img.src = imageUrl;
+      });
+      // Preload match event images
+      Object.values(matchEventImages).forEach((imageUrl) => {
+        const img = new Image();
+        img.src = imageUrl;
+      });
+    };
+    preloadImages();
+  }, []);
+
   useEffect(() => {
     if (account && signer) {
       loadUserData(signer, account);
@@ -734,171 +940,380 @@ function App() {
 
   return (
     <div className="App">
-      <div className="container">
-        <header className="card">
-          <h1>🏆 FanForge</h1>
-          <p>Strategic Sports Prediction Game</p>
-          
-          {!account ? (
-            <button onClick={connectWallet}>Connect Wallet</button>
-          ) : (
-            <div>
-              <span className="status connected">Connected: {account.slice(0, 6)}...{account.slice(-4)}</span>
-              {fanStats ? (
-                <div style={{ marginTop: "16px", padding: "12px", background: "rgba(255,255,255,0.1)", borderRadius: "8px" }}>
-                  <h3>Your Fan NFT</h3>
-                  <p>Level: {fanStats.level} | Team: {fanStats.teamName}</p>
-                  <p>Correct Predictions: {fanStats.correctPredictions} / {fanStats.totalPredictions}</p>
-                  {fanTokenId && <p style={{ fontSize: "12px", opacity: 0.8 }}>Token ID: {fanTokenId}</p>}
-                </div>
-              ) : (
-                <div style={{ marginTop: "16px", padding: "12px", background: "rgba(255,255,255,0.1)", borderRadius: "8px" }}>
-                  <p style={{ fontSize: "14px", opacity: 0.9 }}>
-                    No Fan NFT found. Mint one using: <br />
-                    <code style={{ fontSize: "12px" }}>
-                      USER_ADDRESS={account.slice(0, 10)}... TEAM_NAME="Your Team" npx hardhat run scripts/mintFanNFT.js --network spicy
-                    </code>
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </header>
+      {/* Header Bar */}
+      <header className="app-header">
+        <div className="header-content">
+          <div className="logo">
+            <span className="logo-icon">🏆</span>
+            <h1 className="logo-text">FanForge</h1>
+          </div>
+          <div className="header-actions">
+            {!account ? (
+              <button className="connect-wallet-btn" onClick={connectWallet}>
+                Connect Wallet
+              </button>
+            ) : (
+              <div className="wallet-info">
+                <span className="status connected">
+                  {account.slice(0, 6)}...{account.slice(-4)}
+                </span>
+                {fanStats && (
+                  <span className="nft-badge">Level {fanStats.level}</span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
 
-        {error && <div className="error">{error}</div>}
-        {success && <div className="success">{success}</div>}
+      <div className="container">
+        {/* Hero Section - Only show when not connected */}
+        {!account && (
+          <div className="hero-section">
+            <div className="hero-content">
+              <h1 className="hero-title animate-fade-in">
+                Prove Your Loyalty
+              </h1>
+              <p className="hero-subtitle animate-fade-in-delay">
+                Participate in a sports card collectible experience like never before.
+                Use your cards to predict your favorite team's matches and earn dynamic NFTs that level up with your accuracy.
+              </p>
+              <div className="hero-features animate-fade-in-delay-2">
+                <div className="feature-item">
+                  <span className="feature-icon">🎴</span>
+                  <span>Collect Rare Cards</span>
+                </div>
+                <div className="feature-item">
+                  <span className="feature-icon">⚡</span>
+                  <span>Make Predictions</span>
+                </div>
+                <div className="feature-item">
+                  <span className="feature-icon">📈</span>
+                  <span>Level Up Your NFT</span>
+                </div>
+                <div className="feature-item">
+                  <span className="feature-icon">🏅</span>
+                  <span>Unlock Rewards</span>
+                </div>
+              </div>
+              <button className="hero-cta animate-bounce" onClick={connectWallet}>
+                Get Started
+              </button>
+            </div>
+          </div>
+        )}
+
+        {error && <div className="error animate-slide-down">{error}</div>}
+        {success && <div className="success animate-slide-down">{success}</div>}
+
+        {/* Card Opening Modal */}
+        {showCardModal && openedCard && (
+          <div className="card-modal-overlay" onClick={() => setShowCardModal(false)}>
+            <div className="card-modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="card-modal-close" onClick={() => setShowCardModal(false)}>×</button>
+              <div className="card-modal-confetti">
+                {Array.from({ length: 50 }).map((_, i) => (
+                  <div key={i} className="confetti-piece" style={{
+                    left: `${Math.random() * 100}%`,
+                    animationDelay: `${Math.random() * 0.5}s`,
+                    backgroundColor: ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#f0932b', '#eb4d4b', '#6c5ce7'][Math.floor(Math.random() * 7)]
+                  }}></div>
+                ))}
+              </div>
+              <h2 className="card-modal-title">🎉 Pack Opened! 🎉</h2>
+              <div className="card-modal-card">
+                <div className={`trading-card rarity-${openedCard.rarity}`}>
+                  <div className="card-image">
+                    {getCardImageUrl(openedCard.name, openedCard.type) ? (
+                      <img 
+                        src={getCardImageUrl(openedCard.name, openedCard.type)}
+                        alt={openedCard.name}
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div style={{ 
+                        width: '100%', 
+                        height: '100%', 
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'white',
+                        fontSize: '18px',
+                        fontWeight: 'bold'
+                      }}>
+                        {openedCard.name}
+                      </div>
+                    )}
+                    <div className={`card-rarity-badge rarity-${openedCard.rarity}`}>
+                      {openedCard.rarity === "1" ? "Common" : 
+                       openedCard.rarity === "2" ? "Uncommon" :
+                       openedCard.rarity === "3" ? "Rare" :
+                       openedCard.rarity === "4" ? "Epic" : "Legendary"}
+                    </div>
+                  </div>
+                  <div className="card-details">
+                    <h3 className="card-name">{openedCard.name}</h3>
+                                    <p className="card-type">{formatCardType(openedCard.type)}</p>
+                  </div>
+                </div>
+              </div>
+              <button className="card-modal-button" onClick={() => setShowCardModal(false)}>
+                Awesome!
+              </button>
+            </div>
+          </div>
+        )}
 
         {account && (
           <>
-            {/* Open Pack Section */}
-            <div className="card">
-              <h2>Open Card Pack</h2>
-              <p>Cost: 0.01 CHZ</p>
-              <button onClick={openPack} disabled={loading}>
-                {loading ? "Opening..." : "Open Pack"}
-              </button>
-            </div>
-
-            {/* My Cards Section */}
-            <div className="card">
-              <h2>My Cards ({cards.length})</h2>
-              {cards.length === 0 ? (
-                <p>No cards yet. Open a pack to get started!</p>
-              ) : (
-                <div className="grid">
-                  {cards.map(card => (
-                    <div
-                      key={card.id}
-                      className={`card-item rarity-${card.rarity} ${selectedCards.includes(card.id) ? 'selected' : ''}`}
-                      onClick={() => toggleCard(card.id)}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <h3>{card.name}</h3>
-                      <p>{card.type}</p>
-                      <p>Rarity: {card.rarity}</p>
-                      <p>Owned: {card.balance}</p>
-                    </div>
-                  ))}
+            {/* Main Two Column Layout: 1/3 Left, 2/3 Right */}
+            <div className="main-layout">
+              {/* Left Column: 1/3 - NFT & Welcome */}
+              <div className="main-column-left">
+                {/* Welcome Back */}
+                <div className="card welcome-card">
+                  <h2>Welcome Back!</h2>
+                  <p style={{ color: "#666", marginTop: "8px" }}>
+                    Ready to make some predictions?
+                  </p>
                 </div>
-              )}
-            </div>
 
-            {/* Submit Prediction Section */}
-            <div className="card">
-              <h2>Submit Prediction</h2>
-              <p style={{ fontSize: "14px", color: "#666", marginBottom: "12px" }}>
-                <strong>Note:</strong> Hardcoded matches (1-4) are for UI only. You must create matches on-chain first using the admin script.
-              </p>
-              <select
-                value={selectedMatch}
-                onChange={(e) => setSelectedMatch(e.target.value)}
-              >
-                <option value="">Select a match</option>
-                {/* Show loaded matches first (these exist on-chain) */}
-                {matches
-                  .filter(m => m.status === "Pending" || m.statusNum === 0)
-                  .map(match => (
-                    <option key={match.id} value={match.id}>
-                      {match.teamA} vs {match.teamB} (Match #{match.id})
-                    </option>
-                  ))}
-                {/* Show hardcoded matches as fallback (may not exist on-chain) */}
-                {matches.filter(m => m.status === "Pending").length === 0 && hardcodedMatches.map(match => (
-                  <option key={match.id} value={match.id}>
-                    {match.teamA} vs {match.teamB} (May not exist - create first!)
-                  </option>
-                ))}
-              </select>
-              
-              {selectedCards.length > 0 && (
-                <div>
-                  <p>Selected Cards: {selectedCards.length}</p>
-                  <button onClick={submitPrediction} disabled={loading || !selectedMatch}>
-                    {loading ? "Submitting..." : "Submit Prediction"}
-                  </button>
-                </div>
-              )}
-            </div>
+                {/* Dynamic NFT Card */}
+                {fanStats ? (
+                  <div className="nft-card">
+                    <div className="nft-card-content">
+                      <div className="nft-header">
+                        <div className="nft-icon">🎫</div>
+                        <div className="nft-title-section">
+                          <h2 className="nft-title">FanForge Fan NFT</h2>
+                          <p className="nft-subtitle">Level {fanStats.level} • {fanStats.teamName}</p>
+                        </div>
+                        <div className="nft-level-badge">Lv.{fanStats.level}</div>
+                      </div>
+                      
+                      <div className="nft-stats-grid">
+                        <div className="nft-stat">
+                          <div className="nft-stat-value">{fanStats.correctPredictions}</div>
+                          <div className="nft-stat-label">Correct</div>
+                        </div>
+                        <div className="nft-stat">
+                          <div className="nft-stat-value">{fanStats.totalPredictions}</div>
+                          <div className="nft-stat-label">Total</div>
+                        </div>
+                        <div className="nft-stat">
+                          <div className="nft-stat-value">
+                            {fanStats.totalPredictions !== "0" 
+                              ? Math.round((parseInt(fanStats.correctPredictions) / parseInt(fanStats.totalPredictions)) * 100)
+                              : 0}%
+                          </div>
+                          <div className="nft-stat-label">Accuracy</div>
+                        </div>
+                        <div className="nft-stat">
+                          <div className="nft-stat-value">
+                            {parseInt(fanStats.level) * 3 - parseInt(fanStats.correctPredictions)}
+                          </div>
+                          <div className="nft-stat-label">To Next Level</div>
+                        </div>
+                      </div>
 
-            {/* Fan NFT Display Section */}
-            {fanStats && (
-              <div className="card">
-                <h2>🎫 Your Dynamic Fan NFT</h2>
-                <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "center" }}>
-                  <div style={{ flex: "1", minWidth: "200px" }}>
-                    {fanNFTMetadata && (
-                      <>
-                        <h3>{fanNFTMetadata.name || `FanForge Fan NFT - Level ${fanStats.level}`}</h3>
-                        <p style={{ color: "#666", marginBottom: "16px" }}>
-                          {fanNFTMetadata.description || `A dedicated fan with ${fanStats.correctPredictions} correct predictions!`}
-                        </p>
-                      </>
-                    )}
-                    <div style={{ background: "#f8f9fa", padding: "16px", borderRadius: "8px", marginTop: "16px" }}>
-                      <p><strong>Level:</strong> {fanStats.level} / 5</p>
-                      <p><strong>Team:</strong> {fanStats.teamName}</p>
-                      <p><strong>Correct Predictions:</strong> {fanStats.correctPredictions}</p>
-                      <p><strong>Total Predictions:</strong> {fanStats.totalPredictions}</p>
-                      {fanStats.totalPredictions !== "0" && (
-                        <p><strong>Accuracy:</strong> {Math.round((parseInt(fanStats.correctPredictions) / parseInt(fanStats.totalPredictions)) * 100)}%</p>
-                      )}
-                      {fanTokenId && <p style={{ fontSize: "12px", color: "#666" }}>Token ID: {fanTokenId}</p>}
-                    </div>
-                    <div style={{ marginTop: "16px", padding: "12px", background: "#e7f3ff", borderRadius: "8px" }}>
-                      <p style={{ fontSize: "14px", margin: 0 }}>
-                        <strong>Level Up Progress:</strong> {fanStats.correctPredictions} / {parseInt(fanStats.level) * 3} correct predictions needed for next level
-                      </p>
-                      <div style={{ width: "100%", height: "8px", background: "#ddd", borderRadius: "4px", marginTop: "8px", overflow: "hidden" }}>
-                        <div style={{ 
-                          width: `${Math.min(100, (parseInt(fanStats.correctPredictions) / (parseInt(fanStats.level) * 3)) * 100)}%`, 
-                          height: "100%", 
-                          background: "#667eea",
-                          transition: "width 0.3s"
-                        }}></div>
+                      <div className="nft-progress">
+                        <div className="nft-progress-bar">
+                          <div 
+                            className="nft-progress-fill"
+                            style={{ 
+                              width: `${Math.min(100, (parseInt(fanStats.correctPredictions) / (parseInt(fanStats.level) * 3)) * 100)}%`
+                            }}
+                          ></div>
+                        </div>
+                        <div className="nft-progress-text">
+                          {fanStats.correctPredictions} / {parseInt(fanStats.level) * 3} correct predictions
+                        </div>
                       </div>
                     </div>
                   </div>
-                  {fanNFTMetadata && fanNFTMetadata.image && (
-                    <div style={{ flex: "0 0 200px" }}>
-                      <img 
-                        src={fanNFTMetadata.image} 
-                        alt="Fan NFT" 
-                        style={{ width: "100%", borderRadius: "8px", border: "2px solid #667eea" }}
-                        onError={(e) => {
-                          e.target.style.display = "none";
-                        }}
-                      />
+                ) : (
+                  <div className="nft-card nft-card-empty">
+                    <div className="nft-card-content">
+                      <p style={{ textAlign: "center", color: "rgba(255,255,255,0.8)" }}>
+                        No Fan NFT found. Mint one to get started!
+                      </p>
                     </div>
-                  )}
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column: 2/3 - Everything Else */}
+              <div className="main-column-right">
+                {/* Open Pack Section */}
+                <div className="card">
+                  <h2>🎴 Open Card Pack</h2>
+                  <p style={{ color: "#666", marginBottom: "16px" }}>Cost: 0.01 CHZ</p>
+                  <button onClick={openPack} disabled={loading} style={{ width: "100%" }}>
+                    {loading ? "Opening..." : "Open Pack"}
+                  </button>
                 </div>
-                <div style={{ marginTop: "16px", padding: "12px", background: "#fff3cd", borderRadius: "8px", fontSize: "14px" }}>
-                  <p style={{ margin: 0 }}>
-                    <strong>💡 How it works:</strong> Your NFT levels up automatically every 3 correct predictions. 
-                    Higher levels unlock exclusive rewards like tickets, swag, and player meetups!
-                  </p>
+
+                {/* Two Column Layout: My Cards & Submit Prediction */}
+                <div className="two-column-layout">
+                  {/* Left: My Cards */}
+                  <div className="column-left">
+                    <div className="card">
+                      <h2>My Cards ({cards.length})</h2>
+                      {cards.length === 0 ? (
+                        <p style={{ color: "#666", textAlign: "center", padding: "20px" }}>
+                          No cards yet. Open a pack to get started!
+                        </p>
+                      ) : (
+                        <div className="trading-cards-grid">
+                          {cards.map(card => {
+                            const balance = parseInt(card.balance);
+                            const isSelected = selectedCards.includes(card.id);
+                            
+                            return (
+                              <div
+                                key={card.id}
+                                className={`trading-card-container rarity-${card.rarity} ${isSelected ? 'selected' : ''}`}
+                                onClick={() => toggleCard(card.id)}
+                              >
+                                <div className={`trading-card rarity-${card.rarity} ${isSelected ? 'selected' : ''}`}>
+                                  <div className="card-image">
+                                    {(() => {
+                                      const imageUrl = getCardImageUrl(card.name, card.type);
+                                      console.log(`Card: ${card.name}, Type: ${card.type}, Image URL:`, imageUrl);
+                                      if (imageUrl) {
+                                        return (
+                                          <img 
+                                            src={imageUrl}
+                                            alt={card.name}
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                            onError={(e) => {
+                                              console.error(`Failed to load image for ${card.name}:`, imageUrl, e);
+                                              e.target.style.display = 'none';
+                                            }}
+                                            onLoad={() => {
+                                              console.log(`Successfully loaded image for ${card.name}:`, imageUrl);
+                                            }}
+                                          />
+                                        );
+                                      } else {
+                                        return (
+                                          <div style={{ 
+                                            width: '100%', 
+                                            height: '100%', 
+                                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            color: 'white',
+                                            fontSize: '18px',
+                                            fontWeight: 'bold'
+                                          }}>
+                                            {card.name}
+                                          </div>
+                                        );
+                                      }
+                                    })()}
+                                    <div className={`card-rarity-badge rarity-${card.rarity}`}>
+                                      {card.rarity === "1" ? "Common" : 
+                                       card.rarity === "2" ? "Uncommon" :
+                                       card.rarity === "3" ? "Rare" :
+                                       card.rarity === "4" ? "Epic" : "Legendary"}
+                                    </div>
+                                  </div>
+                                  <div className="card-details">
+                                    <h3 className="card-name">{card.name}</h3>
+                                    <p className="card-type">{formatCardType(card.type)}</p>
+                                    {balance > 1 && (
+                                      <div className="card-count-badge-bottom">x{balance}</div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: Submit Prediction */}
+                  <div className="column-right">
+                    <div className="card">
+                      <h2>⚡ Submit Prediction</h2>
+                      <p style={{ fontSize: "14px", color: "#666", marginBottom: "16px" }}>
+                        Select a match and use your cards to make a prediction
+                      </p>
+                      
+                      <div style={{ marginBottom: "16px" }}>
+                        <label style={{ display: "block", marginBottom: "8px", fontWeight: "600" }}>Select Match</label>
+                        <select
+                          value={selectedMatch}
+                          onChange={(e) => setSelectedMatch(e.target.value)}
+                          style={{ width: "100%" }}
+                        >
+                          <option value="">Choose a match...</option>
+                          {matches
+                            .filter(m => m.status === "Pending" || m.statusNum === 0)
+                            .map(match => (
+                              <option key={match.id} value={match.id}>
+                                {match.teamA} vs {match.teamB} (Match #{match.id})
+                              </option>
+                            ))}
+                          {matches.filter(m => m.status === "Pending").length === 0 && hardcodedMatches.map(match => (
+                            <option key={match.id} value={match.id}>
+                              {match.teamA} vs {match.teamB} (May not exist - create first!)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {selectedCards.length > 0 && (
+                        <div style={{ 
+                          padding: "12px", 
+                          background: "#f0f4ff", 
+                          borderRadius: "8px", 
+                          marginBottom: "16px" 
+                        }}>
+                          <p style={{ margin: "0 0 8px 0", fontWeight: "600" }}>
+                            Selected Cards: {selectedCards.length}
+                          </p>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                            {selectedCards.map(cardId => {
+                              const card = cards.find(c => c.id === cardId);
+                              return card ? (
+                                <span 
+                                  key={cardId}
+                                  style={{
+                                    padding: "4px 8px",
+                                    background: "#667eea",
+                                    color: "white",
+                                    borderRadius: "4px",
+                                    fontSize: "12px"
+                                  }}
+                                >
+                                  {card.name}
+                                </span>
+                              ) : null;
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      <button 
+                        onClick={submitPrediction} 
+                        disabled={loading || !selectedMatch || selectedCards.length === 0}
+                        style={{ width: "100%" }}
+                      >
+                        {loading ? "Submitting..." : "Submit Prediction"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
-            )}
+            </div>
 
             {/* My Predictions Section */}
             <div className="card">
@@ -1078,7 +1493,7 @@ function App() {
                                   >
                                     <strong>{card.name}</strong>
                                     <div style={{ fontSize: "11px", color: "#666", marginTop: "4px" }}>
-                                      {card.type} • Rarity {card.rarity}
+                                      {formatCardType(card.type)} • Rarity {card.rarity}
                                     </div>
                                     {isCardMarked && (
                                       <div style={{

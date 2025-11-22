@@ -1,21 +1,1148 @@
 .App {
   min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding-bottom: 40px;
 }
 
-header {
-  text-align: center;
+/* Header Bar */
+.app-header {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  padding: 0;
+}
+
+.header-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  font-size: 2rem;
+  animation: rotate 3s linear infinite;
+}
+
+.logo-text {
+  font-size: 1.8rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.connect-wallet-btn {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.connect-wallet-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+}
+
+.wallet-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nft-badge {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Hero Section */
+.hero-section {
+  text-align: center;
+  padding: 80px 20px;
+  color: white;
+}
+
+.hero-content {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.hero-title {
+  font-size: 3.5rem;
+  font-weight: 800;
+  margin-bottom: 24px;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.hero-subtitle {
+  font-size: 1.3rem;
+  line-height: 1.8;
+  margin-bottom: 40px;
+  opacity: 0.95;
+  max-width: 700px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.hero-features {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 30px;
+  margin-bottom: 50px;
+}
+
+.feature-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  min-width: 150px;
+  transition: all 0.3s;
+}
+
+.feature-item:hover {
+  transform: translateY(-5px);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.feature-icon {
+  font-size: 2.5rem;
+  animation: float 3s ease-in-out infinite;
+}
+
+.feature-item:nth-child(2) .feature-icon {
+  animation-delay: 0.5s;
+}
+
+.feature-item:nth-child(3) .feature-icon {
+  animation-delay: 1s;
+}
+
+.feature-item:nth-child(4) .feature-icon {
+  animation-delay: 1.5s;
+}
+
+.feature-item span:last-child {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.hero-cta {
+  background: white;
+  color: #667eea;
+  border: none;
+  padding: 18px 48px;
+  border-radius: 50px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+}
+
+.hero-cta:hover {
+  transform: scale(1.05);
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.3);
+}
+
+/* User Header */
+.user-header {
+  margin-top: 20px;
   margin-bottom: 24px;
 }
 
-header h1 {
+.user-header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.user-info h2 {
+  margin: 0 0 12px 0;
+  color: #333;
+}
+
+.user-stats {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #666;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #667eea;
+}
+
+/* Animations */
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.8s ease-out;
+}
+
+.animate-fade-in-delay {
+  animation: fade-in 0.8s ease-out 0.2s both;
+}
+
+.animate-fade-in-delay-2 {
+  animation: fade-in 0.8s ease-out 0.4s both;
+}
+
+.animate-bounce {
+  animation: fade-in 0.8s ease-out 0.6s both, float 3s ease-in-out 1.4s infinite;
+}
+
+.animate-slide-down {
+  animation: slide-down 0.5s ease-out;
+}
+
+/* NFT Card */
+.nft-card {
+  background: linear-gradient(135deg, #a78bfa 0%, #c084fc 50%, #e879f9 100%);
+  border-radius: 20px;
+  padding: 0;
+  margin: 20px 0;
+  box-shadow: 0 12px 40px rgba(167, 139, 250, 0.4);
+  position: relative;
+  overflow: hidden;
+  animation: fade-in 0.6s ease-out;
+}
+
+.nft-card::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    45deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+  animation: shine 3s infinite;
+}
+
+.nft-card-empty {
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.3) 0%, rgba(192, 132, 252, 0.3) 100%);
+  box-shadow: 0 8px 24px rgba(167, 139, 250, 0.2);
+}
+
+.nft-card-content {
+  position: relative;
+  z-index: 1;
+  padding: 32px;
+  color: white;
+}
+
+.nft-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.nft-icon {
   font-size: 3rem;
+  animation: float 3s ease-in-out infinite;
+}
+
+.nft-title-section {
+  flex: 1;
+}
+
+.nft-title {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin: 0 0 4px 0;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.nft-subtitle {
+  font-size: 1rem;
+  margin: 0;
+  opacity: 0.9;
+}
+
+.nft-level-badge {
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.nft-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.nft-stat {
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  padding: 16px;
+  border-radius: 12px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.nft-stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.nft-stat-label {
+  font-size: 0.85rem;
+  opacity: 0.9;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.nft-progress {
+  margin-top: 8px;
+}
+
+.nft-progress-bar {
+  width: 100%;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  overflow: hidden;
   margin-bottom: 8px;
 }
 
-header p {
-  font-size: 1.2rem;
+.nft-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #fff 0%, rgba(255, 255, 255, 0.8) 100%);
+  border-radius: 6px;
+  transition: width 0.5s ease;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+}
+
+.nft-progress-text {
+  font-size: 0.9rem;
   opacity: 0.9;
+  text-align: center;
+}
+
+@keyframes shine {
+  0% {
+    transform: translateX(-100%) translateY(-100%) rotate(45deg);
+  }
+  100% {
+    transform: translateX(100%) translateY(100%) rotate(45deg);
+  }
+}
+
+/* Main Layout: 1/3 Left, 2/3 Right */
+.main-layout {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 24px;
+  margin: 24px 0;
+  align-items: start;
+  padding-left: 0;
+  margin-left: -20px; /* Move left column more to the left */
+}
+
+.main-column-left {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 100px;
+}
+
+.main-column-right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.welcome-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+}
+
+.welcome-card h2 {
+  color: white;
+  margin: 0;
+}
+
+/* Two Column Layout (within right column) */
+.two-column-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin: 0;
+  align-items: stretch;
+}
+
+.column-left,
+.column-right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Limit width of My Cards component */
+.column-left {
+  max-width: 500px;
+}
+
+/* Ensure both card components have equal height */
+.column-left .card,
+.column-right .card {
+  display: flex;
+  flex-direction: column;
+  height: 430px;
+  min-height: 430px;
+  max-height: 430px;
+  overflow: hidden; /* Keep container size fixed - no overflow */
+  /* Prevent size changes from child elements */
+  contain: layout style;
+  /* Ensure content doesn't get cut off */
+  box-sizing: border-box;
+}
+
+/* Make the card content scrollable if it overflows */
+.column-left .card h2,
+.column-right .card h2 {
+  flex-shrink: 0;
+  margin-bottom: 16px;
+}
+
+/* Make the trading cards grid scrollable horizontally */
+.column-left .trading-cards-grid {
+  flex: 1;
+  overflow-y: hidden;
+  overflow-x: auto;
+  min-height: 0;
+  max-height: 100%;
+  margin-left: -24px; /* Compensate for card padding */
+  padding: 20px 24px 20px 24px; /* Padding for cards */
+  /* Prevent size changes */
+  contain: layout;
+  /* Enable smooth scrolling */
+  scrollbar-width: thin;
+  scrollbar-color: #667eea rgba(0, 0, 0, 0.1);
+}
+
+.column-left .trading-cards-grid::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.column-left .trading-cards-grid::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+}
+
+.column-left .trading-cards-grid::-webkit-scrollbar-thumb {
+  background: #667eea;
+  border-radius: 4px;
+}
+
+.column-left .trading-cards-grid::-webkit-scrollbar-thumb:hover {
+  background: #5568d3;
+}
+
+/* Make the submit prediction form scrollable */
+.column-right .card > p,
+.column-right .card > div {
+  flex-shrink: 0;
+}
+
+.column-right .card form,
+.column-right .card > div:last-child {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Trading Cards */
+.trading-cards-grid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 0;
+  padding: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  align-items: start;
+  /* Prevent size changes */
+  contain: layout;
+  min-height: 0;
+  max-height: 100%;
+  box-sizing: border-box;
+}
+
+/* Card containers - side by side with spacing */
+.trading-cards-grid .trading-card-container {
+  display: inline-block;
+  vertical-align: top;
+  width: 200px;
+  min-width: 200px;
+  max-width: 200px;
+  flex-shrink: 0;
+  position: relative;
+  margin-left: 0; /* No negative margin - cards are side by side */
+  margin-right: 16px; /* Spacing between cards */
+  transition: none; /* No transitions */
+  z-index: 1;
+  /* Prevent affecting parent layout */
+  contain: layout style;
+  /* Ensure cards stay within bounds */
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* First card should not have left margin */
+.trading-cards-grid .trading-card-container:first-child {
+  margin-left: 0;
+}
+
+/* Simple hover effect - just shadow change */
+.trading-cards-grid .trading-card-container:hover {
+  z-index: 10;
+}
+
+/* First card hover - same as others */
+.trading-cards-grid .trading-card-container:first-child:hover {
+  margin-left: 0;
+}
+
+/* Prevent container from resizing on hover */
+.trading-cards-grid {
+  contain: layout;
+  position: relative;
+}
+
+.trading-card-container {
+  position: relative;
+  cursor: pointer;
+  perspective: 1000px;
+  min-width: 180px;
+  max-width: 200px;
+  overflow: visible;
+  display: inline-block;
+  vertical-align: top;
+}
+
+.trading-card-container:hover {
+  z-index: 100;
+  overflow: visible;
+  position: relative;
+}
+
+/* Removed duplicate hover rule - using the one below */
+
+.trading-card {
+  width: 100%;
+  max-width: 200px;
+  min-width: 180px;
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s ease;
+  position: relative;
+  border: 3px solid transparent;
+  /* Ensure cards don't have any default vertical positioning */
+  margin: 0;
+  vertical-align: top;
+  /* Ensure card fits within container */
+  max-height: 100%;
+  box-sizing: border-box;
+}
+
+/* Simple hover effect for cards */
+.trading-card-container:hover .trading-card {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.trading-card.selected {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3), 0 8px 24px rgba(102, 126, 234, 0.4);
+}
+
+/* Card Stack Effect - Horizontal */
+.card-stack-horizontal {
+  position: relative;
+  width: 100%;
+  height: 350px;
+  transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  display: inline-block;
+  /* Prevent any vertical stacking */
+  line-height: 0;
+  /* Ensure horizontal layout at all screen sizes */
+  flex-direction: row;
+  flex-wrap: nowrap;
+}
+
+/* All cards in stack - positioned absolutely at EXACT same vertical position */
+.card-stack-horizontal .trading-card {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0;
+  width: 100%;
+  transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  /* CRITICAL: Only use translateX, NEVER translateY */
+  transform-origin: left top;
+  margin: 0 !important;
+  vertical-align: top !important;
+}
+
+/* First card (front) - fully visible, at left: 0, top: 0 */
+.card-stack-horizontal .card-front {
+  z-index: 10;
+  transform: translateX(0) !important;
+  top: 0 !important;
+  position: absolute !important;
+}
+
+/* Cards behind - showing edges (stacked to the RIGHT horizontally) */
+/* ALL cards at EXACT same top: 0, only offset horizontally with translateX */
+.card-stack-horizontal .card-back {
+  opacity: 0.85;
+  top: 0 !important;
+  position: absolute !important;
+  /* NO translateY - only horizontal offset */
+}
+
+.card-stack-horizontal .card-back:nth-child(2) {
+  z-index: 9;
+  transform: translateX(12px) !important;
+  top: 0 !important;
+}
+
+.card-stack-horizontal .card-back:nth-child(3) {
+  z-index: 8;
+  transform: translateX(24px) !important;
+  top: 0 !important;
+}
+
+.card-stack-horizontal .card-back:nth-child(4) {
+  z-index: 7;
+  transform: translateX(36px) !important;
+  top: 0 !important;
+}
+
+.card-stack-horizontal .card-back:nth-child(5) {
+  z-index: 6;
+  transform: translateX(48px) !important;
+  top: 0 !important;
+}
+
+/* On hover - expand all cards horizontally side by side */
+.card-stack-horizontal:hover {
+  width: auto;
+  min-width: calc(100% + 200px);
+  height: 350px;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
+  padding-right: 16px;
+}
+
+.card-stack-horizontal:hover .trading-card {
+  position: relative !important;
+  transform: translateX(0) !important;
+  opacity: 1 !important;
+  z-index: 10 !important;
+  width: 200px;
+  max-width: 200px;
+  min-width: 200px;
+  flex-shrink: 0;
+  left: auto !important;
+  top: auto !important;
+}
+
+/* Card Image */
+.card-image {
+  position: relative;
+  width: 100%;
+  height: 240px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  overflow: hidden;
+}
+
+.card-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.card-rarity-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  backdrop-filter: blur(10px);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.card-rarity-badge.rarity-1 {
+  background: rgba(108, 117, 125, 0.9);
+  color: white;
+}
+
+.card-rarity-badge.rarity-2 {
+  background: rgba(40, 167, 69, 0.9);
+  color: white;
+}
+
+.card-rarity-badge.rarity-3 {
+  background: rgba(0, 123, 255, 0.9);
+  color: white;
+}
+
+.card-rarity-badge.rarity-4 {
+  background: rgba(111, 66, 193, 0.9);
+  color: white;
+}
+
+.card-rarity-badge.rarity-5 {
+  background: rgba(255, 193, 7, 0.9);
+  color: #000;
+  border-color: rgba(255, 215, 0, 0.5);
+}
+
+/* Card Details */
+.card-details {
+  padding: 16px;
+  background: white;
+  position: relative;
+}
+
+.card-name {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 6px 0;
+  color: #333;
+  text-align: center;
+}
+
+.card-type {
+  font-size: 12px;
+  color: #666;
+  text-align: center;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.card-count-badge {
+  position: absolute;
+  top: -12px;
+  right: 12px;
+  background: #667eea;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+}
+
+.card-count-badge-bottom {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: #667eea;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+}
+
+/* Rarity Border Colors - Removed left border */
+.trading-card.rarity-1 {
+  border-color: transparent;
+}
+
+.trading-card.rarity-2 {
+  border-color: transparent;
+}
+
+.trading-card.rarity-3 {
+  border-color: transparent;
+}
+
+.trading-card.rarity-4 {
+  border-color: transparent;
+}
+
+.trading-card.rarity-5 {
+  border-color: transparent;
+  box-shadow: 0 4px 20px rgba(255, 193, 7, 0.3);
+}
+
+.trading-card.rarity-5::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.3) 50%, transparent 70%);
+  animation: shine 3s infinite;
+  pointer-events: none;
+}
+
+/* Card Opening Modal */
+.card-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn 0.3s ease;
+}
+
+.card-modal-content {
+  position: relative;
+  background: white;
+  border-radius: 24px;
+  padding: 40px;
+  max-width: 500px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  overflow: hidden;
+}
+
+.card-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(0, 0, 0, 0.1);
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  color: #666;
+}
+
+.card-modal-close:hover {
+  background: rgba(0, 0, 0, 0.2);
+  transform: rotate(90deg);
+}
+
+.card-modal-title {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0 0 30px 0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.card-modal-card {
+  display: flex;
+  justify-content: center;
+  margin: 30px 0;
+  transform: scale(1.1);
+  animation: cardReveal 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) 0.2s both;
+}
+
+.card-modal-button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 14px 32px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  margin-top: 20px;
+}
+
+.card-modal-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+}
+
+/* Confetti Animation */
+.card-modal-confetti {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.confetti-piece {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  top: -10px;
+  animation: confettiFall 3s linear forwards;
+  border-radius: 2px;
+}
+
+@keyframes confettiFall {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(50px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes cardReveal {
+  from {
+    transform: scale(0.5) rotateY(180deg);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1.1) rotateY(0deg);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 968px) {
+  .main-layout {
+    grid-template-columns: 1fr;
+  }
+  
+  .main-column-left {
+    position: static;
+  }
+  
+  .two-column-layout {
+    grid-template-columns: 1fr;
+  }
+  
+  .nft-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .trading-cards-grid {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0;
+    padding: 20px 0;
+    overflow-x: auto;
+  }
+  
+  .trading-cards-grid .trading-card-container {
+    width: 150px;
+    min-width: 150px;
+    max-width: 150px;
+    margin-left: -90px;
+  }
+  
+  .trading-cards-grid .trading-card-container:first-child {
+    margin-left: 0;
+  }
+  
+  .trading-cards-grid .trading-card-container:hover {
+    margin-left: -75px;
+  }
+}
+
+/* Ensure horizontal stacking works at all screen sizes */
+@media (min-width: 969px) {
+  .card-stack-horizontal {
+    position: relative;
+    width: 100%;
+    height: 350px;
+    display: inline-block;
+    line-height: 0;
+  }
+  
+  .card-stack-horizontal .trading-card {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0;
+    width: 100%;
+    transform-origin: left top;
+    margin: 0 !important;
+    vertical-align: top !important;
+  }
+  
+  .card-stack-horizontal .card-front {
+    z-index: 10;
+    transform: translateX(0) !important;
+    top: 0 !important;
+    position: absolute !important;
+  }
+  
+  .card-stack-horizontal .card-back {
+    opacity: 0.85;
+    top: 0 !important;
+    position: absolute !important;
+  }
+  
+  .card-stack-horizontal .card-back:nth-child(2) {
+    z-index: 9;
+    transform: translateX(12px) !important;
+    top: 0 !important;
+  }
+  
+  .card-stack-horizontal .card-back:nth-child(3) {
+    z-index: 8;
+    transform: translateX(24px) !important;
+    top: 0 !important;
+  }
+  
+  .card-stack-horizontal .card-back:nth-child(4) {
+    z-index: 7;
+    transform: translateX(36px) !important;
+    top: 0 !important;
+  }
+  
+  .card-stack-horizontal .card-back:nth-child(5) {
+    z-index: 6;
+    transform: translateX(48px) !important;
+    top: 0 !important;
+  }
 }
 
