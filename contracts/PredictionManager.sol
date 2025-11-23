@@ -37,12 +37,20 @@ contract PredictionManager is Ownable, ERC165, IERC1155Receiver {
         bool overtime;
         bool penaltyKick;
         string winningTeam;
+        // Player-specific outcomes
+        string playerOfTheMatch; // Player name who won MVP/POTM
+        string mostPointsScored; // Player name
+        string mostFouls; // Player name
+        string mostMinutesPlayed; // Player name
+        string mostAssists; // Player name
+        string mostTackles; // Player name
     }
     
     struct Prediction {
         address user;
         uint256 matchId;
         uint256[] cardIds;
+        string playerPrompt; // e.g., "Player of the Match / MVP", "Most points scored", etc.
         bool settled;
         bool correct;
     }
@@ -56,7 +64,7 @@ contract PredictionManager is Ownable, ERC165, IERC1155Receiver {
     uint256 public predictionCount;
     
     event MatchCreated(uint256 indexed matchId, string teamA, string teamB);
-    event PredictionSubmitted(uint256 indexed predictionId, address indexed user, uint256 indexed matchId, uint256[] cardIds);
+    event PredictionSubmitted(uint256 indexed predictionId, address indexed user, uint256 indexed matchId, uint256[] cardIds, string playerPrompt);
     event MatchSettled(uint256 indexed matchId, MatchOutcome outcome);
     event PredictionSettled(uint256 indexed predictionId, address indexed user, bool correct);
 
@@ -89,7 +97,13 @@ contract PredictionManager is Ownable, ERC165, IERC1155Receiver {
                 hatTrick: false,
                 overtime: false,
                 penaltyKick: false,
-                winningTeam: ""
+                winningTeam: "",
+                playerOfTheMatch: "",
+                mostPointsScored: "",
+                mostFouls: "",
+                mostMinutesPlayed: "",
+                mostAssists: "",
+                mostTackles: ""
             })
         });
         
@@ -99,10 +113,14 @@ contract PredictionManager is Ownable, ERC165, IERC1155Receiver {
 
     /**
      * @dev Submit a prediction using cards
+     * @param matchId The match ID to predict on
+     * @param cardIds Array of card IDs to use for the prediction
+     * @param playerPrompt Optional prompt for player cards (e.g., "Player of the Match / MVP", "Most points scored", etc.)
      */
     function submitPrediction(
         uint256 matchId,
-        uint256[] memory cardIds
+        uint256[] memory cardIds,
+        string memory playerPrompt
     ) external returns (uint256) {
         require(matches[matchId].matchId != 0, "Match does not exist");
         require(matches[matchId].status == MatchStatus.Pending, "Match already settled");
@@ -125,6 +143,7 @@ contract PredictionManager is Ownable, ERC165, IERC1155Receiver {
             user: msg.sender,
             matchId: matchId,
             cardIds: cardIds,
+            playerPrompt: playerPrompt,
             settled: false,
             correct: false
         });
@@ -133,7 +152,7 @@ contract PredictionManager is Ownable, ERC165, IERC1155Receiver {
         userPredictions[msg.sender].push(predictionId);
         predictionIdToMatch[predictionId] = matchId;
         
-        emit PredictionSubmitted(predictionId, msg.sender, matchId, cardIds);
+        emit PredictionSubmitted(predictionId, msg.sender, matchId, cardIds, playerPrompt);
         return predictionId;
     }
 
@@ -172,7 +191,7 @@ contract PredictionManager is Ownable, ERC165, IERC1155Receiver {
         prediction.settled = true;
         
         // Check if prediction matches outcome
-        bool isCorrect = _checkPredictionAccuracy(prediction.cardIds, outcome);
+        bool isCorrect = _checkPredictionAccuracy(prediction, outcome);
         prediction.correct = isCorrect;
         
         // Update fan NFT stats
@@ -186,12 +205,12 @@ contract PredictionManager is Ownable, ERC165, IERC1155Receiver {
      * @dev Check if submitted cards match the match outcome
      */
     function _checkPredictionAccuracy(
-        uint256[] memory cardIds,
+        Prediction memory prediction,
         MatchOutcome memory outcome
     ) internal view returns (bool) {
         // Get card details and check if any match the outcome
-        for (uint256 i = 0; i < cardIds.length; i++) {
-            CardPackFactory.Card memory card = cardPackFactory.getCard(cardIds[i]);
+        for (uint256 i = 0; i < prediction.cardIds.length; i++) {
+            CardPackFactory.Card memory card = cardPackFactory.getCard(prediction.cardIds[i]);
             
             if (card.cardType == CardPackFactory.CardType.MatchEvent) {
                 // Check if the match event occurred
@@ -218,6 +237,47 @@ contract PredictionManager is Ownable, ERC165, IERC1155Receiver {
                 }
                 if (keccak256(bytes(card.name)) == keccak256(bytes("Penalty Kick")) && outcome.penaltyKick) {
                     return true;
+                }
+            } else if (card.cardType == CardPackFactory.CardType.Player) {
+                // Check player-specific predictions
+                // Only check if playerPrompt is provided
+                if (bytes(prediction.playerPrompt).length == 0) {
+                    continue; // Skip player cards without a prompt
+                }
+                
+                bytes32 promptHash = keccak256(bytes(prediction.playerPrompt));
+                bytes32 cardNameHash = keccak256(bytes(card.name));
+                
+                // Check if player prompt matches and player name matches outcome
+                if (promptHash == keccak256(bytes("Player of the Match / MVP"))) {
+                    if (cardNameHash == keccak256(bytes(outcome.playerOfTheMatch)) && bytes(outcome.playerOfTheMatch).length > 0) {
+                        return true;
+                    }
+                }
+                if (promptHash == keccak256(bytes("Most points scored"))) {
+                    if (cardNameHash == keccak256(bytes(outcome.mostPointsScored)) && bytes(outcome.mostPointsScored).length > 0) {
+                        return true;
+                    }
+                }
+                if (promptHash == keccak256(bytes("Most fouls"))) {
+                    if (cardNameHash == keccak256(bytes(outcome.mostFouls)) && bytes(outcome.mostFouls).length > 0) {
+                        return true;
+                    }
+                }
+                if (promptHash == keccak256(bytes("Most minutes played"))) {
+                    if (cardNameHash == keccak256(bytes(outcome.mostMinutesPlayed)) && bytes(outcome.mostMinutesPlayed).length > 0) {
+                        return true;
+                    }
+                }
+                if (promptHash == keccak256(bytes("Most Assists"))) {
+                    if (cardNameHash == keccak256(bytes(outcome.mostAssists)) && bytes(outcome.mostAssists).length > 0) {
+                        return true;
+                    }
+                }
+                if (promptHash == keccak256(bytes("Most tackles"))) {
+                    if (cardNameHash == keccak256(bytes(outcome.mostTackles)) && bytes(outcome.mostTackles).length > 0) {
+                        return true;
+                    }
                 }
             }
         }

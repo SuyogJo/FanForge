@@ -18,13 +18,13 @@ const CARD_PACK_FACTORY_ABI = [
 ];
 
 const PREDICTION_MANAGER_ABI = [
-  "function submitPrediction(uint256 matchId, uint256[] memory cardIds) returns (uint256)",
-  "function matches(uint256) view returns (uint256 matchId, string teamA, string teamB, uint256 timestamp, uint8 status, tuple(bool redCard, bool moreThan4Goals, bool fightBreaksOut, bool moreThan4SlapShots, bool touchdownPass40Plus, bool hatTrick, bool overtime, bool penaltyKick, string winningTeam) outcome)",
+  "function submitPrediction(uint256 matchId, uint256[] memory cardIds, string memory playerPrompt) returns (uint256)",
+  "function matches(uint256) view returns (uint256 matchId, string teamA, string teamB, uint256 timestamp, uint8 status, tuple(bool redCard, bool moreThan4Goals, bool fightBreaksOut, bool moreThan4SlapShots, bool touchdownPass40Plus, bool hatTrick, bool overtime, bool penaltyKick, string winningTeam, string playerOfTheMatch, string mostPointsScored, string mostFouls, string mostMinutesPlayed, string mostAssists, string mostTackles) outcome)",
   "function matchCount() view returns (uint256)",
   "function getUserPredictions(address) view returns (uint256[])",
-  "function getMatchPredictions(uint256) view returns (tuple(address user, uint256 matchId, uint256[] cardIds, bool settled, bool correct)[])",
+  "function getMatchPredictions(uint256) view returns (tuple(address user, uint256 matchId, uint256[] cardIds, string playerPrompt, bool settled, bool correct)[])",
   "function predictionIdToMatch(uint256) view returns (uint256)",
-  "event PredictionSubmitted(uint256 indexed predictionId, address indexed user, uint256 indexed matchId, uint256[] cardIds)"
+  "event PredictionSubmitted(uint256 indexed predictionId, address indexed user, uint256 indexed matchId, uint256[] cardIds, string playerPrompt)"
 ];
 
 const FAN_NFT_ABI = [
@@ -70,18 +70,37 @@ function App() {
   const [account, setAccount] = useState(null);
   const [cards, setCards] = useState([]);
   const [matches, setMatches] = useState([]);
-  const [selectedCards, setSelectedCards] = useState([]);
   const [selectedMatch, setSelectedMatch] = useState("");
+  const [selectedMatchEventCards, setSelectedMatchEventCards] = useState([]);
+  const [selectedPlayerCards, setSelectedPlayerCards] = useState([]);
+  const [selectedPlayerPrompt, setSelectedPlayerPrompt] = useState("");
+  const [matchCardsLocked, setMatchCardsLocked] = useState(false);
+  const [playerCardsLocked, setPlayerCardsLocked] = useState(false);
   const [fanStats, setFanStats] = useState(null);
   const [fanTokenId, setFanTokenId] = useState(null);
   const [fanNFTMetadata, setFanNFTMetadata] = useState(null);
   const [myPredictions, setMyPredictions] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(false);
+  const [packOpening, setPackOpening] = useState(false);
+  const [submittingPrediction, setSubmittingPrediction] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [openedCard, setOpenedCard] = useState(null);
   const [showCardModal, setShowCardModal] = useState(false);
+  const [currentView, setCurrentView] = useState("home"); // "home" or "collection"
+  const [collectionFilter, setCollectionFilter] = useState("all"); // "all", "player", "matchevent"
+  const [lastPackTime, setLastPackTime] = useState(0);
+  const [loadingTipIndex, setLoadingTipIndex] = useState(0);
+  
+  // Loading screen tips
+  const loadingTips = [
+    "Collect rare player and match event cards",
+    "Use your cards to make predictions on real matches",
+    "Earn dynamic NFTs that level up with accurate predictions",
+    "Unlock exclusive rewards as your fan level increases"
+  ];
 
   // Hardcoded matches for testing
   const hardcodedMatches = [
@@ -246,9 +265,12 @@ function App() {
   };
 
   // Load user's cards and stats
-  const loadUserData = async (signer, address) => {
+  const loadUserData = async (signer, address, showInitialLoading = true) => {
     try {
       setLoading(true);
+      if (showInitialLoading) {
+        setInitialLoading(true);
+      }
       
       // Load cards
       const cardPackFactory = new ethers.Contract(
@@ -384,6 +406,7 @@ function App() {
                   teamA: Array.isArray(match) ? match[1] : match.teamA,
                   teamB: Array.isArray(match) ? match[2] : match.teamB,
                   cards: cardDetails,
+                  playerPrompt: pred.playerPrompt || "",
                   settled: pred.settled,
                   correct: pred.correct,
                   matchStatus: matchStatus
@@ -567,9 +590,15 @@ function App() {
       }
       
       setLoading(false);
+      if (showInitialLoading) {
+        setInitialLoading(false);
+      }
     } catch (err) {
       setError(err.message);
       setLoading(false);
+      if (showInitialLoading) {
+        setInitialLoading(false);
+      }
     }
   };
 
@@ -577,6 +606,7 @@ function App() {
   const openPack = async () => {
     try {
       setLoading(true);
+      setPackOpening(true);
       setError(null);
       
       const cardPackFactory = new ethers.Contract(
@@ -589,28 +619,175 @@ function App() {
       let packPrice;
       try {
         packPrice = await cardPackFactory.packPrice();
+        console.log("Pack price from contract:", ethers.formatEther(packPrice), "CHZ");
       } catch (e) {
+        console.warn("Could not get pack price from contract, using default:", e);
         // Fallback to default if packPrice() doesn't exist in ABI
         packPrice = ethers.parseEther("0.01");
       }
       
-      // Check user balance
-      const balance = await provider.getBalance(account);
-      if (balance < packPrice) {
-        throw new Error(`Insufficient balance. Need ${ethers.formatEther(packPrice)} CHZ, but you have ${ethers.formatEther(balance)} CHZ`);
+      // Verify contract has cards initialized
+      let cardCount = 0n;
+      try {
+        cardCount = await cardPackFactory.cardCount();
+        console.log("Contract card count:", cardCount.toString());
+        if (cardCount === 0n) {
+          throw new Error("Contract has no cards initialized. Cards must be initialized before opening packs. Please contact the contract owner.");
+        }
+      } catch (checkErr) {
+        if (checkErr.message && checkErr.message.includes("no cards")) {
+          throw checkErr;
+        }
+        console.warn("Could not verify card count:", checkErr);
       }
       
-      // Estimate gas first to catch revert reasons
+      // Check user balance (including gas)
+      const balance = await provider.getBalance(account);
+      const estimatedGas = ethers.parseEther("0.001"); // Rough gas estimate
+      const totalNeeded = packPrice + estimatedGas;
+      console.log("User balance:", ethers.formatEther(balance), "CHZ");
+      console.log("Pack price:", ethers.formatEther(packPrice), "CHZ");
+      console.log("Estimated gas:", ethers.formatEther(estimatedGas), "CHZ");
+      console.log("Total needed:", ethers.formatEther(totalNeeded), "CHZ");
+      
+      if (balance < totalNeeded) {
+        throw new Error(`Insufficient balance. You have ${ethers.formatEther(balance)} CHZ, but need at least ${ethers.formatEther(totalNeeded)} CHZ (${ethers.formatEther(packPrice)} CHZ for pack + gas fees).`);
+      }
+      
+      // Estimate gas first to catch revert reasons with better error messages
       try {
-        await cardPackFactory.openPack.estimateGas({ value: packPrice });
+        const gasEstimate = await cardPackFactory.openPack.estimateGas({ value: packPrice });
+        console.log("Gas estimate:", gasEstimate.toString());
       } catch (estimateError) {
+        console.error("Gas estimation error:", estimateError);
         // Try to extract revert reason
-        const errorMessage = estimateError.reason || estimateError.message || "Transaction would revert";
-        throw new Error(`Cannot open pack: ${errorMessage}. Make sure you have enough CHZ and the contract is properly initialized.`);
+        let errorMessage = "Transaction would revert";
+        if (estimateError.reason) {
+          errorMessage = estimateError.reason;
+        } else if (estimateError.data) {
+          // Try to decode the revert reason from error data
+          try {
+            const decoded = cardPackFactory.interface.parseError(estimateError.data);
+            errorMessage = decoded?.name || errorMessage;
+          } catch (e) {
+            // If we can't decode, try to get message
+            errorMessage = estimateError.message || errorMessage;
+          }
+        } else if (estimateError.message) {
+          errorMessage = estimateError.message;
+        }
+        throw new Error(`Cannot open pack: ${errorMessage}. Make sure you have enough CHZ (need ${ethers.formatEther(packPrice)} CHZ) and the contract is properly initialized (card count: ${cardCount.toString()}).`);
+      }
+      
+      // Add a delay between pack openings to avoid potential race conditions
+      // This helps avoid issues with block.timestamp being the same for multiple transactions
+      const timeSinceLastPack = Date.now() - lastPackTime;
+      if (timeSinceLastPack < 2000) {
+        const waitTime = 2000 - timeSinceLastPack;
+        console.log(`Waiting ${waitTime}ms to avoid race conditions...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+      setLastPackTime(Date.now());
+      
+      console.log(`Opening pack with value: ${ethers.formatEther(packPrice)} CHZ`);
+      
+      // Use a static call first to simulate the transaction and catch revert reasons
+      try {
+        await cardPackFactory.openPack.staticCall({ value: packPrice });
+        console.log("Static call succeeded - transaction should work");
+      } catch (staticCallError) {
+        console.error("Static call failed (transaction would revert):", staticCallError);
+        let revertReason = "Unknown error";
+        if (staticCallError.reason) {
+          revertReason = staticCallError.reason;
+        } else if (staticCallError.data) {
+          try {
+            // Try to decode the error
+            const decoded = cardPackFactory.interface.parseError(staticCallError.data);
+            revertReason = decoded?.name || revertReason;
+          } catch (e) {
+            revertReason = staticCallError.message || revertReason;
+          }
+        } else if (staticCallError.message) {
+          revertReason = staticCallError.message;
+        }
+        throw new Error(`Transaction would fail: ${revertReason}. Please try again in a moment.`);
       }
       
       const tx = await cardPackFactory.openPack({ value: packPrice });
-      const receipt = await tx.wait();
+      console.log("Transaction sent:", tx.hash);
+      
+      // Wait for transaction with timeout
+      let receipt;
+      try {
+        receipt = await Promise.race([
+          tx.wait(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Transaction timeout")), 60000))
+        ]);
+      } catch (waitError) {
+        console.error("Error waiting for transaction:", waitError);
+        
+        // Try to get the revert reason from the error
+        let revertReason = "Unknown error";
+        
+        // Check if we have a receipt with status 0 (reverted)
+        if (waitError.receipt && waitError.receipt.status === 0) {
+          // Try to call the contract to get revert reason
+          try {
+            // Try to simulate the call again to get the revert reason
+            await cardPackFactory.openPack.staticCall({ value: packPrice });
+          } catch (simulateError) {
+            if (simulateError.reason) {
+              revertReason = simulateError.reason;
+            } else if (simulateError.data) {
+              try {
+                const decoded = cardPackFactory.interface.parseError(simulateError.data);
+                revertReason = decoded?.name || revertReason;
+              } catch (e) {
+                revertReason = simulateError.message || revertReason;
+              }
+            } else if (simulateError.message) {
+              revertReason = simulateError.message;
+            }
+          }
+          
+          throw new Error(`Transaction reverted: ${revertReason}. This may be due to insufficient balance, contract state issues, or network problems. Please wait a moment and try again.`);
+        }
+        
+        if (waitError.message && waitError.message.includes("timeout")) {
+          throw new Error("Transaction timed out. Please check the transaction on the blockchain explorer.");
+        }
+        
+        throw new Error(`Transaction failed: ${waitError.message || "Unknown error"}`);
+      }
+      
+      console.log("Transaction receipt:", receipt);
+      
+      if (!receipt.status) {
+        // Transaction reverted - try to get more info
+        console.error("Transaction reverted. Receipt:", receipt);
+        
+        // Try to simulate again to get revert reason
+        let revertReason = "Unknown revert reason";
+        try {
+          await cardPackFactory.openPack.staticCall({ value: packPrice });
+        } catch (simulateError) {
+          if (simulateError.reason) {
+            revertReason = simulateError.reason;
+          } else if (simulateError.data) {
+            try {
+              const decoded = cardPackFactory.interface.parseError(simulateError.data);
+              revertReason = decoded?.name || revertReason;
+            } catch (e) {
+              revertReason = simulateError.message || revertReason;
+            }
+          } else if (simulateError.message) {
+            revertReason = simulateError.message;
+          }
+        }
+        
+        throw new Error(`Transaction reverted: ${revertReason}. Please check your balance (need ${ethers.formatEther(packPrice)} CHZ + gas) and try again in a moment.`);
+      }
       
       // Get card details from event in receipt
       let cardData = null;
@@ -674,28 +851,67 @@ function App() {
             description: ""
           });
           setShowCardModal(true);
+          setPackOpening(false); // Hide loading overlay when modal is ready
         }
       }
       
       setSuccess("Pack opened! Check your cards.");
-      await loadUserData(signer, account);
+      // Don't show initial loading screen when reloading after pack opening
+      await loadUserData(signer, account, false);
       setLoading(false);
     } catch (err) {
       console.error("Open pack error:", err);
-      setError(err.message || "Failed to open pack. Please try again.");
+      setPackOpening(false);
+      let errorMessage = err.message || "Failed to open pack. Please try again.";
+      
+      // Provide more helpful error messages
+      if (err.code === "CALL_EXCEPTION" || err.receipt?.status === 0) {
+        errorMessage = "Transaction failed. This could be due to:\n" +
+          "1. Insufficient balance (need 0.01 CHZ + gas fees)\n" +
+          "2. Contract not properly initialized\n" +
+          "3. Network issues\n\n" +
+          "Please check your balance and try again.";
+      } else if (err.message?.includes("insufficient funds") || err.message?.includes("Insufficient")) {
+        errorMessage = `Insufficient funds. You need at least 0.01 CHZ + gas fees to open a pack.`;
+      } else if (err.message?.includes("No cards")) {
+        errorMessage = "Contract has no cards available. Please contact the contract owner.";
+      }
+      
+      setError(errorMessage);
       setLoading(false);
+      setSubmittingPrediction(false);
     }
   };
 
   // Submit prediction
   const submitPrediction = async () => {
     try {
-      if (!selectedMatch || selectedCards.length === 0) {
-        setError("Please select a match and at least one card");
+      if (!selectedMatch || !matchCardsLocked) {
+        setError("Please select a match and lock in match event cards");
+        return;
+      }
+      // Player cards are optional - allow submission without them
+      if (!playerCardsLocked) {
+        setError("Please lock in player cards or skip to continue");
+        return;
+      }
+      
+      // Combine match event cards and player cards
+      const allSelectedCards = [...selectedMatchEventCards, ...selectedPlayerCards];
+      
+      if (selectedMatchEventCards.length === 0) {
+        setError("Please select at least one match event card");
+        return;
+      }
+      
+      // If player cards are selected, prompt is required
+      if (selectedPlayerCards.length > 0 && !selectedPlayerPrompt) {
+        setError("Please select a player prompt for your player cards");
         return;
       }
       
       setLoading(true);
+      setSubmittingPrediction(true);
       setError(null);
       
       // Check and set approval if needed
@@ -753,8 +969,8 @@ function App() {
       }
       
       // Validate user owns all selected cards
-      console.log("Validating card ownership for cards:", selectedCards);
-      for (const cardId of selectedCards) {
+      console.log("Validating card ownership for cards:", allSelectedCards);
+      for (const cardId of allSelectedCards) {
         try {
           // Check if card exists by trying to get card info
           let cardExists = false;
@@ -830,14 +1046,15 @@ function App() {
         }
       }
       
-      console.log(`Submitting prediction: Match ${selectedMatch}, Cards: [${selectedCards.join(", ")}]`);
+      console.log(`Submitting prediction: Match ${selectedMatch}, Match Event Cards: [${selectedMatchEventCards.join(", ")}], Player Cards: [${selectedPlayerCards.join(", ")}], Prompt: ${selectedPlayerPrompt}`);
       
       // Convert card IDs to numbers if they're strings
-      const cardIds = selectedCards.map(id => typeof id === 'string' ? parseInt(id) : id);
+      const cardIds = allSelectedCards.map(id => typeof id === 'string' ? parseInt(id) : id);
       
       const tx = await predictionManager.submitPrediction(
         parseInt(selectedMatch),
-        cardIds
+        cardIds,
+        selectedPlayerPrompt || "" // Pass player prompt (empty string if no player cards)
       );
       
       console.log("Transaction sent, waiting for confirmation...");
@@ -845,10 +1062,10 @@ function App() {
       console.log("Transaction confirmed:", receipt.transactionHash);
       
       setSuccess("Prediction submitted!");
-      setSelectedCards([]);
-      setSelectedMatch("");
-      await loadUserData(signer, account);
+      resetPrediction();
+      await loadUserData(signer, account, false);
       setLoading(false);
+      setSubmittingPrediction(false);
     } catch (err) {
       console.error("Prediction error:", err);
       let errorMsg = err.message;
@@ -869,17 +1086,128 @@ function App() {
       }
       
       setError(errorMsg);
-      setLoading(false);
     }
   };
 
   // Toggle card selection
   const toggleCard = (cardId) => {
-    if (selectedCards.includes(cardId)) {
-      setSelectedCards(selectedCards.filter(id => id !== cardId));
-    } else {
-      setSelectedCards([...selectedCards, cardId]);
+    const card = cards.find(c => c.id === cardId);
+    if (!card) {
+      console.log('Card not found:', cardId, 'Available cards:', cards.map(c => ({ id: c.id, name: c.name })));
+      return;
     }
+    
+    console.log('toggleCard called:', {
+      cardId,
+      cardName: card.name,
+      cardType: card.type,
+      cardTypeRaw: typeof card.type,
+      cardTypeValue: card.type,
+      matchCardsLocked,
+      playerCardsLocked,
+      balance: card.balance
+    });
+    
+    // If match cards are locked, only allow selecting player cards
+    if (matchCardsLocked && card.type !== "Player") {
+      console.log('Blocked: match cards locked but card is not Player. Card type:', card.type, 'Type check:', card.type === "Player");
+      return;
+    }
+    
+    // If match cards are not locked, only allow selecting match event cards
+    if (!matchCardsLocked && card.type !== "MatchEvent") {
+      console.log('Blocked: match cards not locked but card is not MatchEvent. Card type:', card.type);
+      return;
+    }
+    
+    // Normalize cardId to number for consistent comparison
+    const normalizedCardId = typeof cardId === 'string' ? parseInt(cardId) : cardId;
+    
+    if (card.type === "MatchEvent") {
+      const normalizedSelected = selectedMatchEventCards.map(id => typeof id === 'string' ? parseInt(id) : id);
+      if (normalizedSelected.includes(normalizedCardId)) {
+        setSelectedMatchEventCards(selectedMatchEventCards.filter(id => {
+          const normalizedId = typeof id === 'string' ? parseInt(id) : id;
+          return normalizedId !== normalizedCardId;
+        }));
+      } else {
+        setSelectedMatchEventCards([...selectedMatchEventCards, normalizedCardId]);
+      }
+    } else if (card.type === "Player") {
+      console.log('Toggling player card:', {
+        normalizedCardId,
+        cardId,
+        cardName: card.name,
+        currentSelection: selectedPlayerCards,
+        currentSelectionTypes: selectedPlayerCards.map(id => ({ id, type: typeof id }))
+      });
+      const normalizedSelected = selectedPlayerCards.map(id => typeof id === 'string' ? parseInt(id) : id);
+      console.log('Normalized selected:', normalizedSelected, 'Includes?', normalizedSelected.includes(normalizedCardId));
+      
+      const newSelection = normalizedSelected.includes(normalizedCardId)
+        ? selectedPlayerCards.filter(id => {
+            const normalizedId = typeof id === 'string' ? parseInt(id) : id;
+            const shouldKeep = normalizedId !== normalizedCardId;
+            console.log('Filtering:', { id, normalizedId, normalizedCardId, shouldKeep });
+            return shouldKeep;
+          })
+        : [...selectedPlayerCards, normalizedCardId];
+      
+      console.log('Player card toggled. New selection:', {
+        newSelection,
+        newSelectionTypes: newSelection.map(id => ({ id, type: typeof id }))
+      });
+      setSelectedPlayerCards(newSelection);
+    } else {
+      console.error('Unknown card type:', card.type);
+    }
+  };
+
+  const lockMatchCards = () => {
+    if (selectedMatchEventCards.length === 0) {
+      setError("Please select at least one match event card");
+      return;
+    }
+    setMatchCardsLocked(true);
+    setSuccess("Match event cards locked!");
+  };
+
+  const lockPlayerCards = () => {
+    console.log('lockPlayerCards called:', {
+      selectedPlayerCards: selectedPlayerCards.length,
+      selectedPlayerPrompt,
+      matchCardsLocked
+    });
+    // Player cards are optional - but if selected, both cards and prompt are required
+    if (selectedPlayerCards.length > 0 && !selectedPlayerPrompt) {
+      setError("Please select a player prompt if you've selected player cards");
+      return;
+    }
+    if (selectedPlayerCards.length > 0 && selectedPlayerPrompt) {
+      setPlayerCardsLocked(true);
+      setSuccess("Player cards locked!");
+      console.log('Player cards locked! State updated.');
+    } else {
+      setError("Please select at least one player card and a prompt to lock them in");
+    }
+  };
+
+  const skipPlayerCards = () => {
+    // Skip player card selection entirely
+    setSelectedPlayerCards([]);
+    setSelectedPlayerPrompt("");
+    setPlayerCardsLocked(true);
+    setSuccess("Continuing without player cards");
+    console.log('Skipped player card selection');
+  };
+
+  const resetPrediction = () => {
+    setSelectedMatchEventCards([]);
+    setSelectedPlayerCards([]);
+    setSelectedPlayerPrompt("");
+    setMatchCardsLocked(false);
+    setPlayerCardsLocked(false);
+    setSelectedMatch("");
   };
 
   // Mark card result (demo/admin feature)
@@ -890,7 +1218,6 @@ function App() {
         return;
       }
 
-      setLoading(true);
       setError(null);
 
       const fanNFT = new ethers.Contract(
@@ -905,9 +1232,21 @@ function App() {
 
       setSuccess(`Card marked as ${isCorrect ? "correct" : "incorrect"}! NFT stats updated.`);
       
-      // Reload user data to show updated stats
-      await loadUserData(signer, account);
-      setLoading(false);
+      // Remove predictions that contain this card from the match
+      setMyPredictions(prevPredictions => {
+        return prevPredictions.filter(pred => {
+          // If this prediction is for a different match, keep it
+          if (pred.matchId !== matchId.toString()) {
+            return true;
+          }
+          // If this prediction contains the marked card, remove it
+          const hasCard = pred.cards.some(card => card.id === cardId.toString());
+          return !hasCard;
+        });
+      });
+      
+      // Reload user data to show updated stats (without loading screen)
+      await loadUserData(signer, account, false);
     } catch (err) {
       console.error("Error marking card result:", err);
       setError(err.message);
@@ -938,8 +1277,55 @@ function App() {
     }
   }, [account]);
 
+  // Rotate loading tips
+  useEffect(() => {
+    if (initialLoading) {
+      const interval = setInterval(() => {
+        setLoadingTipIndex((prev) => (prev + 1) % loadingTips.length);
+      }, 3000); // Change tip every 3 seconds
+      return () => clearInterval(interval);
+    }
+  }, [initialLoading, loadingTips.length]);
+
   return (
     <div className="App">
+      {/* Initial Loading Screen - Don't show if pack is opening or submitting prediction */}
+      {account && initialLoading && !packOpening && !submittingPrediction && (
+        <div className="loading-screen">
+          <div className="loading-spinner">
+            <div className="spinner-circle"></div>
+            <div className="spinner-circle"></div>
+            <div className="spinner-circle"></div>
+          </div>
+          <p className="loading-text">Loading your collection...</p>
+          <div className="loading-tips-container">
+            <div className="loading-tip" key={loadingTipIndex}>
+              {loadingTips[loadingTipIndex]}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pack Opening Loading Overlay */}
+      {packOpening && (
+        <div className="pack-opening-overlay">
+          <div className="pack-opening-spinner">
+            <div className="spinner-ring"></div>
+          </div>
+          <p className="pack-opening-text">Opening pack...</p>
+        </div>
+      )}
+
+      {/* Prediction Submission Loading Overlay */}
+      {submittingPrediction && (
+        <div className="pack-opening-overlay">
+          <div className="pack-opening-spinner">
+            <div className="spinner-ring"></div>
+          </div>
+          <p className="pack-opening-text">Submitting prediction...</p>
+        </div>
+      )}
+      
       {/* Header Bar */}
       <header className="app-header">
         <div className="header-content">
@@ -948,6 +1334,22 @@ function App() {
             <h1 className="logo-text">FanForge</h1>
           </div>
           <div className="header-actions">
+            {account && (
+              <nav className="header-nav">
+                <button 
+                  className={`nav-link ${currentView === "home" ? "active" : ""}`}
+                  onClick={() => setCurrentView("home")}
+                >
+                  Home
+                </button>
+                <button 
+                  className={`nav-link ${currentView === "collection" ? "active" : ""}`}
+                  onClick={() => setCurrentView("collection")}
+                >
+                  My Collection
+                </button>
+              </nav>
+            )}
             {!account ? (
               <button className="connect-wallet-btn" onClick={connectWallet}>
                 Connect Wallet
@@ -966,17 +1368,16 @@ function App() {
         </div>
       </header>
 
-      <div className="container">
+      <div className="container" style={{ display: account && initialLoading ? 'none' : 'block' }}>
         {/* Hero Section - Only show when not connected */}
         {!account && (
           <div className="hero-section">
             <div className="hero-content">
-              <h1 className="hero-title animate-fade-in">
-                Prove Your Loyalty
+              <h1 className="hero-title animate-fade-in" style={{ textAlign: "center" }}>
+                FanForge
               </h1>
-              <p className="hero-subtitle animate-fade-in-delay">
-                Participate in a sports card collectible experience like never before.
-                Use your cards to predict your favorite team's matches and earn dynamic NFTs that level up with your accuracy.
+              <p className="hero-subtitle animate-fade-in-delay" style={{ textAlign: "center", maxWidth: "800px", margin: "0 auto" }}>
+                Collect. Predict. Win. Trade prediction cards and forecast sport match outcomes in the ultimate fan experience. Participate in a sports card collectible experience like never before. Use your cards to predict your favorite team's matches.
               </p>
               <div className="hero-features animate-fade-in-delay-2">
                 <div className="feature-item">
@@ -1003,14 +1404,42 @@ function App() {
           </div>
         )}
 
-        {error && <div className="error animate-slide-down">{error}</div>}
-        {success && <div className="success animate-slide-down">{success}</div>}
+        {error && (
+          <div className="error animate-slide-down">
+            {error}
+            <button 
+              className="message-close-btn" 
+              onClick={() => setError(null)}
+              aria-label="Close error message"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        {success && (
+          <div className="success animate-slide-down">
+            {success}
+            <button 
+              className="message-close-btn" 
+              onClick={() => setSuccess(null)}
+              aria-label="Close success message"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Card Opening Modal */}
         {showCardModal && openedCard && (
-          <div className="card-modal-overlay" onClick={() => setShowCardModal(false)}>
+          <div className="card-modal-overlay" onClick={() => {
+            setShowCardModal(false);
+            setPackOpening(false);
+          }}>
             <div className="card-modal-content" onClick={(e) => e.stopPropagation()}>
-              <button className="card-modal-close" onClick={() => setShowCardModal(false)}>×</button>
+              <button className="card-modal-close" onClick={() => {
+                setShowCardModal(false);
+                setPackOpening(false);
+              }}>×</button>
               <div className="card-modal-confetti">
                 {Array.from({ length: 50 }).map((_, i) => (
                   <div key={i} className="confetti-piece" style={{
@@ -1060,27 +1489,222 @@ function App() {
                   </div>
                 </div>
               </div>
-              <button className="card-modal-button" onClick={() => setShowCardModal(false)}>
+              <button className="card-modal-button" onClick={() => {
+                setShowCardModal(false);
+                setPackOpening(false);
+              }}>
                 Awesome!
               </button>
             </div>
           </div>
         )}
 
-        {account && (
+        {account && currentView === "home" && (
           <>
+            {/* My Cards - Full Width at Top */}
+            <div style={{ width: "100%", maxWidth: "1200px", margin: "0 auto 24px auto" }}>
+              <div className="card">
+                <h2>My Cards ({cards.length})</h2>
+                <div style={{ position: 'relative', width: '100%' }}>
+                  <div className="trading-cards-grid">
+                    {cards.length === 0 ? (
+                      <p style={{ color: "#666", textAlign: "center", padding: "20px", width: "100%" }}>
+                        No cards yet. Open a pack to get started!
+                      </p>
+                    ) : (
+                      cards.map(card => {
+                      const balance = parseInt(card.balance);
+                      // Determine if card is selected based on type and lock status
+                      // Normalize card.id to number for comparison
+                      const normalizedCardId = typeof card.id === 'string' ? parseInt(card.id) : card.id;
+                      let isSelected = false;
+                      if (card.type === "MatchEvent" && !matchCardsLocked) {
+                        const normalizedSelected = selectedMatchEventCards.map(id => typeof id === 'string' ? parseInt(id) : id);
+                        isSelected = normalizedSelected.includes(normalizedCardId);
+                      } else if (card.type === "Player" && matchCardsLocked && !playerCardsLocked) {
+                        const normalizedSelected = selectedPlayerCards.map(id => typeof id === 'string' ? parseInt(id) : id);
+                        isSelected = normalizedSelected.includes(normalizedCardId);
+                        console.log('Checking if card is selected:', {
+                          cardId: normalizedCardId,
+                          cardName: card.name,
+                          selectedPlayerCards,
+                          normalizedSelected,
+                          isSelected
+                        });
+                      }
+                      
+                      // Determine if card should be clickable (but don't grey it out visually)
+                      // Match Event cards: not clickable after match cards are locked
+                      // Player cards: not clickable before match cards are locked OR after player cards are locked
+                      const isClickable = !((matchCardsLocked && card.type === "MatchEvent") || 
+                                            (!matchCardsLocked && card.type === "Player") ||
+                                            (playerCardsLocked && card.type === "Player")) && selectedMatch !== "";
+                      
+                      // Debug: Log card info for Player cards when matchCardsLocked is true
+                      if (card.type === "Player" && matchCardsLocked && !playerCardsLocked) {
+                        console.log('Player card available for selection:', {
+                          cardId: card.id,
+                          cardIdType: typeof card.id,
+                          cardName: card.name,
+                          cardType: card.type,
+                          balance: card.balance,
+                          isClickable,
+                          matchCardsLocked,
+                          playerCardsLocked,
+                          selectedPlayerCards,
+                          selectedPlayerCardsTypes: selectedPlayerCards.map(id => ({ id, type: typeof id }))
+                        });
+                      }
+                      
+                      return (
+                        <div
+                          key={card.id}
+                          className={`trading-card-container rarity-${card.rarity} ${isSelected ? 'selected' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            console.log('=== CARD CLICKED ===', {
+                              cardId: card.id,
+                              cardIdType: typeof card.id,
+                              cardName: card.name,
+                              cardType: card.type,
+                              isClickable,
+                              matchCardsLocked,
+                              playerCardsLocked,
+                              selectedMatch,
+                              balance: card.balance
+                            });
+                            if (isClickable) {
+                              console.log('✅ Calling toggleCard for card:', card.id);
+                              toggleCard(card.id);
+                            } else {
+                              console.log('❌ Card click blocked:', { 
+                                isClickable, 
+                                selectedMatch,
+                                reason: !selectedMatch ? 'No match selected' : 'Card not clickable in current step'
+                              });
+                            }
+                          }}
+                          style={{ 
+                            cursor: isClickable ? 'pointer' : 'default',
+                            position: "relative",
+                            zIndex: isClickable ? 5 : 1,
+                            pointerEvents: isClickable ? 'auto' : 'none'
+                          }}
+                        >
+                          <div className={`trading-card rarity-${card.rarity} ${isSelected ? 'selected' : ''}`}>
+                            <div className="card-image">
+                              {(() => {
+                                const imageUrl = getCardImageUrl(card.name, card.type);
+                                console.log(`Card: ${card.name}, Type: ${card.type}, Image URL:`, imageUrl);
+                                if (imageUrl) {
+                                  return (
+                                    <img 
+                                      src={imageUrl}
+                                      alt={card.name}
+                                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                      onError={(e) => {
+                                        console.error(`Failed to load image for ${card.name}:`, imageUrl, e);
+                                        e.target.style.display = 'none';
+                                      }}
+                                      onLoad={() => {
+                                        console.log(`Successfully loaded image for ${card.name}:`, imageUrl);
+                                      }}
+                                    />
+                                  );
+                                } else {
+                                  return (
+                                    <div style={{
+                                      width: '100%',
+                                      height: '100%',
+                                      background: `linear-gradient(135deg, ${
+                                        card.rarity === "1" ? "#e0e0e0, #bdbdbd" :
+                                        card.rarity === "2" ? "#c8e6c9, #81c784" :
+                                        card.rarity === "3" ? "#bbdefb, #64b5f6" :
+                                        card.rarity === "4" ? "#ce93d8, #ba68c8" :
+                                        "#ffd54f, #ffb300"
+                                      })`,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      color: '#333',
+                                      fontWeight: 'bold',
+                                      fontSize: '14px',
+                                      textAlign: 'center',
+                                      padding: '8px'
+                                    }}>
+                                      {card.name}
+                                    </div>
+                                  );
+                                }
+                              })()}
+                            </div>
+                            <div className="card-details">
+                              <h3 className="card-name">{card.name}</h3>
+                              <p className="card-type">{formatCardType(card.type)}</p>
+                              {balance > 1 && (
+                                <div className="card-count-badge-bottom">x{balance}</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                    )}
+                    {/* Pack New Card Button - Always on the right */}
+                    <div
+                      className="trading-card-container pack-new-card"
+                      onClick={openPack}
+                      style={{ 
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        position: "sticky",
+                        right: 0,
+                        top: 0,
+                        zIndex: 10,
+                        pointerEvents: loading ? 'none' : 'auto',
+                        marginLeft: 'auto',
+                        marginRight: 0,
+                        flexShrink: 0,
+                        alignSelf: 'flex-start'
+                      }}
+                    >
+                      <div className="trading-card pack-new-card-inner">
+                        <div className="card-image" style={{ 
+                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          <div style={{
+                            textAlign: 'center',
+                            color: 'white',
+                            fontSize: '18px',
+                            fontWeight: '700',
+                            padding: '20px'
+                          }}>
+                            🎴<br />
+                            Pack a<br />
+                            new card
+                          </div>
+                        </div>
+                        <div className="card-details" style={{ background: 'white' }}>
+                          <h3 className="card-name" style={{ color: '#667eea' }}>
+                            {loading ? 'Opening...' : 'Click to Open Pack'}
+                          </h3>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Fade gradient overlay */}
+                  <div className="cards-fade-overlay"></div>
+                </div>
+              </div>
+            </div>
+
             {/* Main Two Column Layout: 1/3 Left, 2/3 Right */}
             <div className="main-layout">
-              {/* Left Column: 1/3 - NFT & Welcome */}
+              {/* Left Column: 1/3 - NFT */}
               <div className="main-column-left">
-                {/* Welcome Back */}
-                <div className="card welcome-card">
-                  <h2>Welcome Back!</h2>
-                  <p style={{ color: "#666", marginTop: "8px" }}>
-                    Ready to make some predictions?
-                  </p>
-                </div>
-
                 {/* Dynamic NFT Card */}
                 {fanStats ? (
                   <div className="nft-card">
@@ -1147,176 +1771,354 @@ function App() {
 
               {/* Right Column: 2/3 - Everything Else */}
               <div className="main-column-right">
-                {/* Open Pack Section */}
+                {/* Submit Prediction */}
                 <div className="card">
-                  <h2>🎴 Open Card Pack</h2>
-                  <p style={{ color: "#666", marginBottom: "16px" }}>Cost: 0.01 CHZ</p>
-                  <button onClick={openPack} disabled={loading} style={{ width: "100%" }}>
-                    {loading ? "Opening..." : "Open Pack"}
-                  </button>
-                </div>
-
-                {/* Two Column Layout: My Cards & Submit Prediction */}
-                <div className="two-column-layout">
-                  {/* Left: My Cards */}
-                  <div className="column-left">
-                    <div className="card">
-                      <h2>My Cards ({cards.length})</h2>
-                      {cards.length === 0 ? (
-                        <p style={{ color: "#666", textAlign: "center", padding: "20px" }}>
-                          No cards yet. Open a pack to get started!
-                        </p>
-                      ) : (
-                        <div className="trading-cards-grid">
-                          {cards.map(card => {
-                            const balance = parseInt(card.balance);
-                            const isSelected = selectedCards.includes(card.id);
-                            
-                            return (
-                              <div
-                                key={card.id}
-                                className={`trading-card-container rarity-${card.rarity} ${isSelected ? 'selected' : ''}`}
-                                onClick={() => toggleCard(card.id)}
-                              >
-                                <div className={`trading-card rarity-${card.rarity} ${isSelected ? 'selected' : ''}`}>
-                                  <div className="card-image">
-                                    {(() => {
-                                      const imageUrl = getCardImageUrl(card.name, card.type);
-                                      console.log(`Card: ${card.name}, Type: ${card.type}, Image URL:`, imageUrl);
-                                      if (imageUrl) {
-                                        return (
-                                          <img 
-                                            src={imageUrl}
-                                            alt={card.name}
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                            onError={(e) => {
-                                              console.error(`Failed to load image for ${card.name}:`, imageUrl, e);
-                                              e.target.style.display = 'none';
-                                            }}
-                                            onLoad={() => {
-                                              console.log(`Successfully loaded image for ${card.name}:`, imageUrl);
-                                            }}
-                                          />
-                                        );
-                                      } else {
-                                        return (
-                                          <div style={{ 
-                                            width: '100%', 
-                                            height: '100%', 
-                                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            color: 'white',
-                                            fontSize: '18px',
-                                            fontWeight: 'bold'
-                                          }}>
-                                            {card.name}
-                                          </div>
-                                        );
-                                      }
-                                    })()}
-                                    <div className={`card-rarity-badge rarity-${card.rarity}`}>
-                                      {card.rarity === "1" ? "Common" : 
-                                       card.rarity === "2" ? "Uncommon" :
-                                       card.rarity === "3" ? "Rare" :
-                                       card.rarity === "4" ? "Epic" : "Legendary"}
-                                    </div>
-                                  </div>
-                                  <div className="card-details">
-                                    <h3 className="card-name">{card.name}</h3>
-                                    <p className="card-type">{formatCardType(card.type)}</p>
-                                    {balance > 1 && (
-                                      <div className="card-count-badge-bottom">x{balance}</div>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Right: Submit Prediction */}
-                  <div className="column-right">
-                    <div className="card">
                       <h2>⚡ Submit Prediction</h2>
                       <p style={{ fontSize: "14px", color: "#666", marginBottom: "16px" }}>
-                        Select a match and use your cards to make a prediction
+                        {!matchCardsLocked 
+                          ? "Step 1: Select match event cards for your prediction"
+                          : !playerCardsLocked
+                          ? "Step 2: Select player cards and a prompt"
+                          : "Ready to submit your prediction!"}
                       </p>
                       
-                      <div style={{ marginBottom: "16px" }}>
-                        <label style={{ display: "block", marginBottom: "8px", fontWeight: "600" }}>Select Match</label>
-                        <select
-                          value={selectedMatch}
-                          onChange={(e) => setSelectedMatch(e.target.value)}
-                          style={{ width: "100%" }}
-                        >
-                          <option value="">Choose a match...</option>
-                          {matches
-                            .filter(m => m.status === "Pending" || m.statusNum === 0)
-                            .map(match => (
+                      {/* Step 1: Match Selection - Only show when match cards are NOT locked */}
+                      {!matchCardsLocked && (
+                        <div style={{ marginBottom: "16px", position: "relative", zIndex: 1 }}>
+                          <label style={{ display: "block", marginBottom: "8px", fontWeight: "600" }}>Select Match</label>
+                          <select
+                            value={selectedMatch}
+                            onChange={(e) => {
+                              const newMatch = e.target.value;
+                              setSelectedMatch(newMatch);
+                              if (newMatch !== selectedMatch) {
+                                // Only reset if match actually changed
+                                setSelectedMatchEventCards([]);
+                                setSelectedPlayerCards([]);
+                                setSelectedPlayerPrompt("");
+                                setMatchCardsLocked(false);
+                                setPlayerCardsLocked(false);
+                              }
+                            }}
+                            style={{ 
+                              width: "100%", 
+                              zIndex: 10,
+                              position: "relative"
+                            }}
+                          >
+                            <option value="">Choose a match...</option>
+                            {matches
+                              .filter(m => {
+                                const status = m.statusNum !== undefined ? m.statusNum : (m.status === "Pending" ? 0 : 1);
+                                return status === 0 || m.status === "Pending";
+                              })
+                              .map(match => (
+                                <option key={match.id} value={match.id}>
+                                  {match.teamA} vs {match.teamB} (Match #{match.id})
+                                </option>
+                              ))}
+                            {matches.filter(m => {
+                              const status = m.statusNum !== undefined ? m.statusNum : (m.status === "Pending" ? 0 : 1);
+                              return status === 0 || m.status === "Pending";
+                            }).length === 0 && hardcodedMatches.map(match => (
                               <option key={match.id} value={match.id}>
-                                {match.teamA} vs {match.teamB} (Match #{match.id})
+                                {match.teamA} vs {match.teamB} (May not exist - create first!)
                               </option>
                             ))}
-                          {matches.filter(m => m.status === "Pending").length === 0 && hardcodedMatches.map(match => (
-                            <option key={match.id} value={match.id}>
-                              {match.teamA} vs {match.teamB} (May not exist - create first!)
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {selectedCards.length > 0 && (
+                          </select>
+                        </div>
+                      )}
+                      
+                      {/* Show selected match info when locked */}
+                      {matchCardsLocked && selectedMatch && (
                         <div style={{ 
                           padding: "12px", 
-                          background: "#f0f4ff", 
+                          background: "#e3f2fd", 
                           borderRadius: "8px", 
-                          marginBottom: "16px" 
+                          marginBottom: "16px",
+                          border: "2px solid #2196f3"
                         }}>
-                          <p style={{ margin: "0 0 8px 0", fontWeight: "600" }}>
-                            Selected Cards: {selectedCards.length}
+                          <p style={{ margin: 0, fontWeight: "600", color: "#1976d2" }}>
+                            📋 Match: {(() => {
+                              const match = matches.find(m => m.id.toString() === selectedMatch.toString()) || 
+                                         hardcodedMatches.find(m => m.id.toString() === selectedMatch.toString());
+                              return match ? `${match.teamA} vs ${match.teamB}` : `Match #${selectedMatch}`;
+                            })()}
                           </p>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                            {selectedCards.map(cardId => {
-                              const card = cards.find(c => c.id === cardId);
-                              return card ? (
-                                <span 
-                                  key={cardId}
-                                  style={{
-                                    padding: "4px 8px",
-                                    background: "#667eea",
-                                    color: "white",
-                                    borderRadius: "4px",
-                                    fontSize: "12px"
-                                  }}
-                                >
-                                  {card.name}
-                                </span>
-                              ) : null;
-                            })}
-                          </div>
                         </div>
                       )}
 
-                      <button 
-                        onClick={submitPrediction} 
-                        disabled={loading || !selectedMatch || selectedCards.length === 0}
-                        style={{ width: "100%" }}
-                      >
-                        {loading ? "Submitting..." : "Submit Prediction"}
-                      </button>
-                    </div>
-                  </div>
+                      {/* Step 1: Match Event Cards Selection - Only show when NOT locked */}
+                      {selectedMatch && !matchCardsLocked && (
+                        <>
+                          <div style={{ marginBottom: "16px" }}>
+                            <p style={{ fontSize: "13px", color: "#666", marginBottom: "8px" }}>
+                              Select Match Event Cards (only match event cards can be selected)
+                            </p>
+                            {selectedMatchEventCards.length > 0 && (
+                              <div style={{ 
+                                padding: "12px", 
+                                background: "#f0f4ff", 
+                                borderRadius: "8px", 
+                                marginBottom: "12px" 
+                              }}>
+                                <p style={{ margin: "0 0 8px 0", fontWeight: "600" }}>
+                                  Selected Match Event Cards: {selectedMatchEventCards.length}
+                                </p>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                                  {selectedMatchEventCards.map(cardId => {
+                                    const card = cards.find(c => c.id === cardId);
+                                    return card ? (
+                                      <span 
+                                        key={cardId}
+                                        style={{
+                                          padding: "4px 8px",
+                                          background: "#667eea",
+                                          color: "white",
+                                          borderRadius: "4px",
+                                          fontSize: "12px"
+                                        }}
+                                      >
+                                        {card.name}
+                                      </span>
+                                    ) : null;
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            <button 
+                              onClick={lockMatchCards} 
+                              disabled={selectedMatchEventCards.length === 0}
+                              style={{ width: "100%", marginBottom: "16px" }}
+                            >
+                              Lock in Match Cards
+                            </button>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Step 2: Player Cards Selection - Replaces Step 1 when match cards are locked */}
+                      {matchCardsLocked && !playerCardsLocked && (
+                        <>
+                          <div style={{ marginBottom: "16px" }}>
+                            <p style={{ fontSize: "13px", color: "#666", marginBottom: "12px" }}>
+                              <strong>Optional:</strong> Select player cards and a prompt, or skip to submit with just match event cards.
+                            </p>
+                          </div>
+
+                          <div style={{ marginBottom: "16px", position: "relative", zIndex: 1 }}>
+                            <label style={{ display: "block", marginBottom: "8px", fontWeight: "600" }}>
+                              Select Player Prompt (Optional)
+                            </label>
+                            <select
+                              value={selectedPlayerPrompt}
+                              onChange={(e) => setSelectedPlayerPrompt(e.target.value)}
+                              style={{ 
+                                width: "100%",
+                                zIndex: 10,
+                                position: "relative",
+                                background: "white",
+                                cursor: "pointer"
+                              }}
+                            >
+                              <option value="">Choose a player prompt (optional)...</option>
+                              <option value="Player of the Match / MVP">Player of the Match / MVP</option>
+                              <option value="Most points scored">Most points scored</option>
+                              <option value="Most fouls">Most fouls</option>
+                              <option value="Most minutes played">Most minutes played</option>
+                              <option value="Most Assists">Most Assists</option>
+                              <option value="Most tackles">Most tackles</option>
+                            </select>
+                          </div>
+
+                          <div style={{ marginBottom: "16px" }}>
+                            <p style={{ fontSize: "13px", color: "#666", marginBottom: "8px" }}>
+                              Select Player Cards (optional - only player cards can be selected)
+                            </p>
+                            {selectedPlayerCards.length > 0 && (
+                              <div style={{ 
+                                padding: "12px", 
+                                background: "#f0f4ff", 
+                                borderRadius: "8px", 
+                                marginBottom: "12px" 
+                              }}>
+                                <p style={{ margin: "0 0 8px 0", fontWeight: "600" }}>
+                                  Selected Player Cards: {selectedPlayerCards.length}
+                                </p>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                                  {selectedPlayerCards.map(cardId => {
+                                    // Normalize cardId for comparison
+                                    const normalizedCardId = typeof cardId === 'string' ? parseInt(cardId) : cardId;
+                                    const card = cards.find(c => {
+                                      const normalizedCardIdFromCard = typeof c.id === 'string' ? parseInt(c.id) : c.id;
+                                      return normalizedCardIdFromCard === normalizedCardId;
+                                    });
+                                    return card ? (
+                                      <span 
+                                        key={cardId}
+                                        style={{
+                                          padding: "4px 8px",
+                                          background: "#667eea",
+                                          color: "white",
+                                          borderRadius: "4px",
+                                          fontSize: "12px"
+                                        }}
+                                      >
+                                        {card.name}
+                                      </span>
+                                    ) : null;
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Action buttons */}
+                            <div style={{ display: "flex", gap: "12px", marginTop: "12px" }}>
+                              {/* Lock in Player Cards Button - only enabled if both cards and prompt are selected */}
+                              <button 
+                                onClick={() => {
+                                  if (selectedPlayerCards.length > 0 && !selectedPlayerPrompt) {
+                                    setError("Please select a player prompt if you've selected player cards");
+                                    return;
+                                  }
+                                  if (selectedPlayerCards.length > 0 && selectedPlayerPrompt) {
+                                    lockPlayerCards();
+                                  } else {
+                                    setError("Please select at least one player card and a prompt to lock them in");
+                                  }
+                                }}
+                                disabled={selectedPlayerCards.length === 0 || !selectedPlayerPrompt}
+                                style={{ 
+                                  flex: 1,
+                                  padding: "12px",
+                                  fontSize: "16px",
+                                  fontWeight: "600",
+                                  backgroundColor: (selectedPlayerCards.length === 0 || !selectedPlayerPrompt) ? "#ccc" : "#667eea",
+                                  color: "white",
+                                  border: "none",
+                                  borderRadius: "6px",
+                                  cursor: (selectedPlayerCards.length === 0 || !selectedPlayerPrompt) ? 'not-allowed' : 'pointer',
+                                  transition: "all 0.3s ease"
+                                }}
+                                title={selectedPlayerCards.length === 0 
+                                  ? "Select player cards first" 
+                                  : !selectedPlayerPrompt 
+                                  ? "Select a player prompt first" 
+                                  : "Lock in your player cards"}
+                              >
+                                🔒 Lock in Player Cards
+                              </button>
+                              
+                              {/* Skip Button - always enabled */}
+                              <button 
+                                onClick={skipPlayerCards}
+                                style={{ 
+                                  flex: 1,
+                                  padding: "12px",
+                                  fontSize: "16px",
+                                  fontWeight: "600",
+                                  backgroundColor: "#6c757d",
+                                  color: "white",
+                                  border: "none",
+                                  borderRadius: "6px",
+                                  cursor: "pointer",
+                                  transition: "all 0.3s ease"
+                                }}
+                                title="Skip player card selection and continue to submit"
+                              >
+                                ⏭️ Skip
+                              </button>
+                            </div>
+                            
+                            {selectedPlayerCards.length > 0 && !selectedPlayerPrompt && (
+                              <p style={{ fontSize: "12px", color: "#ff6b6b", marginTop: "8px", marginBottom: 0 }}>
+                                ⚠️ If you've selected player cards, please also select a prompt, or deselect the cards and skip.
+                              </p>
+                            )}
+                          </div>
+                        </>
+                      )}
+
+                      {/* Step 3: Submit */}
+                      {(() => {
+                        const shouldShow = matchCardsLocked && playerCardsLocked;
+                        console.log('Should show submit button?', {
+                          shouldShow,
+                          matchCardsLocked,
+                          playerCardsLocked
+                        });
+                        return shouldShow;
+                      })() && matchCardsLocked && playerCardsLocked && (
+                        <>
+                          <div style={{ 
+                            padding: "12px", 
+                            background: "#e8f5e9", 
+                            borderRadius: "8px", 
+                            marginBottom: "16px",
+                            border: "2px solid #4caf50"
+                          }}>
+                            {selectedPlayerCards.length > 0 ? (
+                              <>
+                                <p style={{ margin: "0 0 8px 0", fontWeight: "600", color: "#2e7d32" }}>
+                                  ✓ Player Cards Locked ({selectedPlayerCards.length} cards)
+                                </p>
+                                <p style={{ margin: "0 0 8px 0", fontSize: "13px", color: "#666" }}>
+                                  Prompt: {selectedPlayerPrompt}
+                                </p>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                                  {selectedPlayerCards.map(cardId => {
+                                    // Normalize cardId for comparison
+                                    const normalizedCardId = typeof cardId === 'string' ? parseInt(cardId) : cardId;
+                                    const card = cards.find(c => {
+                                      const normalizedCardIdFromCard = typeof c.id === 'string' ? parseInt(c.id) : c.id;
+                                      return normalizedCardIdFromCard === normalizedCardId;
+                                    });
+                                    return card ? (
+                                      <span 
+                                        key={cardId}
+                                        style={{
+                                          padding: "4px 8px",
+                                          background: "#4caf50",
+                                          color: "white",
+                                          borderRadius: "4px",
+                                          fontSize: "12px"
+                                        }}
+                                      >
+                                        {card.name}
+                                      </span>
+                                    ) : null;
+                                  })}
+                                </div>
+                              </>
+                            ) : (
+                              <p style={{ margin: 0, fontWeight: "600", color: "#2e7d32" }}>
+                                ✓ Ready to submit with match event cards only
+                              </p>
+                            )}
+                          </div>
+
+                          <button 
+                            onClick={submitPrediction} 
+                            disabled={loading}
+                            style={{ width: "100%", marginBottom: "8px" }}
+                          >
+                            {loading ? "Submitting..." : "Submit Prediction"}
+                          </button>
+                          <button 
+                            onClick={resetPrediction}
+                            style={{ width: "100%", background: "#999", fontSize: "14px", padding: "8px" }}
+                          >
+                            Reset & Start Over
+                          </button>
+                        </>
+                      )}
                 </div>
               </div>
             </div>
 
             {/* My Predictions Section */}
-            <div className="card">
+            <div style={{ width: "100%", maxWidth: "1200px", margin: "24px auto 0 auto" }}>
+              <div className="card">
               <h2>📊 My Predictions ({myPredictions.length})</h2>
               {myPredictions.length === 0 ? (
                 <p>You haven't made any predictions yet. Submit a prediction to see it here!</p>
@@ -1398,7 +2200,7 @@ function App() {
                           }}
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "12px" }}>
-                            <div>
+                            <div style={{ flex: 1 }}>
                               <h3 style={{ margin: 0 }}>
                                 {firstPrediction.teamA} vs {firstPrediction.teamB}
                               </h3>
@@ -1478,6 +2280,11 @@ function App() {
                                 const isCardMarked = cardPrediction && cardPrediction.settled;
                                 const isCardCorrect = cardPrediction && cardPrediction.correct;
                                 
+                                // Get player prompt for this card if it's a player card
+                                const playerPrompt = card.type === "Player" && cardPrediction && cardPrediction.playerPrompt 
+                                  ? cardPrediction.playerPrompt 
+                                  : null;
+                                
                                 return (
                                   <div
                                     key={cardIndex}
@@ -1492,9 +2299,16 @@ function App() {
                                     }}
                                   >
                                     <strong>{card.name}</strong>
-                                    <div style={{ fontSize: "11px", color: "#666", marginTop: "4px" }}>
-                                      {formatCardType(card.type)} • Rarity {card.rarity}
-                                    </div>
+                                    {playerPrompt && (
+                                      <div style={{ fontSize: "12px", color: "#667eea", marginTop: "2px", fontWeight: "500" }}>
+                                        {playerPrompt}
+                                      </div>
+                                    )}
+                                    {!playerPrompt && (
+                                      <div style={{ fontSize: "11px", color: "#666", marginTop: "4px" }}>
+                                        {formatCardType(card.type)} • Rarity {card.rarity}
+                                      </div>
+                                    )}
                                     {isCardMarked && (
                                       <div style={{
                                         position: "absolute",
@@ -1562,9 +2376,155 @@ function App() {
                   })()}
                 </div>
               )}
+              </div>
             </div>
 
           </>
+        )}
+
+        {/* Collection Page */}
+        {account && currentView === "collection" && (
+          <div className="collection-page">
+            <div className="card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
+                <h1 style={{ margin: 0 }}>My Collection</h1>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    className={`filter-btn ${collectionFilter === "all" ? "active" : ""}`}
+                    onClick={() => setCollectionFilter("all")}
+                  >
+                    All Cards
+                  </button>
+                  <button
+                    className={`filter-btn ${collectionFilter === "player" ? "active" : ""}`}
+                    onClick={() => setCollectionFilter("player")}
+                  >
+                    Player Cards
+                  </button>
+                  <button
+                    className={`filter-btn ${collectionFilter === "matchevent" ? "active" : ""}`}
+                    onClick={() => setCollectionFilter("matchevent")}
+                  >
+                    Match Event Cards
+                  </button>
+                </div>
+              </div>
+
+              {cards.length === 0 ? (
+                <p style={{ color: "#666", textAlign: "center", padding: "40px" }}>
+                  No cards yet. Open a pack to get started!
+                </p>
+              ) : (
+                <>
+                  {(() => {
+                    const filteredCards = cards.filter(card => {
+                      if (collectionFilter === "all") return true;
+                      if (collectionFilter === "player") return card.type === "Player";
+                      if (collectionFilter === "matchevent") return card.type === "MatchEvent";
+                      return true;
+                    });
+
+                    if (filteredCards.length === 0) {
+                      return (
+                        <p style={{ color: "#666", textAlign: "center", padding: "40px" }}>
+                          No {collectionFilter === "player" ? "player" : collectionFilter === "matchevent" ? "match event" : ""} cards in your collection.
+                        </p>
+                      );
+                    }
+
+                    return (
+                      <div style={{ marginBottom: "16px", color: "#666" }}>
+                        Showing {filteredCards.length} of {cards.length} cards
+                      </div>
+                    );
+                  })()}
+
+                  <div className="trading-cards-grid collection-grid">
+                    {cards
+                      .filter(card => {
+                        if (collectionFilter === "all") return true;
+                        if (collectionFilter === "player") return card.type === "Player";
+                        if (collectionFilter === "matchevent") return card.type === "MatchEvent";
+                        return true;
+                      })
+                      .map(card => {
+                        const balance = parseInt(card.balance);
+                        const normalizedCardId = typeof card.id === 'string' ? parseInt(card.id) : card.id;
+                        
+                        return (
+                          <div
+                            key={card.id}
+                            className={`trading-card-container rarity-${card.rarity}`}
+                            style={{ 
+                              cursor: "default",
+                              position: "relative",
+                              zIndex: 1
+                            }}
+                          >
+                            <div className={`trading-card rarity-${card.rarity}`}>
+                              <div className="card-image">
+                                {(() => {
+                                  const imageUrl = getCardImageUrl(card.name, card.type);
+                                  if (imageUrl) {
+                                    return (
+                                      <img 
+                                        src={imageUrl}
+                                        alt={card.name}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        onError={(e) => {
+                                          e.target.style.display = 'none';
+                                        }}
+                                      />
+                                    );
+                                  } else {
+                                    return (
+                                      <div style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        background: `linear-gradient(135deg, ${
+                                          card.rarity === "1" ? "#e0e0e0, #bdbdbd" :
+                                          card.rarity === "2" ? "#c8e6c9, #81c784" :
+                                          card.rarity === "3" ? "#bbdefb, #64b5f6" :
+                                          card.rarity === "4" ? "#ce93d8, #ba68c8" :
+                                          "#ffd54f, #ffb300"
+                                        })`,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: '#333',
+                                        fontWeight: 'bold',
+                                        fontSize: '14px',
+                                        textAlign: 'center',
+                                        padding: '8px'
+                                      }}>
+                                        {card.name}
+                                      </div>
+                                    );
+                                  }
+                                })()}
+                                <div className={`card-rarity-badge rarity-${card.rarity}`}>
+                                  {card.rarity === "1" ? "Common" : 
+                                   card.rarity === "2" ? "Uncommon" :
+                                   card.rarity === "3" ? "Rare" :
+                                   card.rarity === "4" ? "Epic" : "Legendary"}
+                                </div>
+                              </div>
+                              <div className="card-details">
+                                <h3 className="card-name">{card.name}</h3>
+                                <p className="card-type">{formatCardType(card.type)}</p>
+                                {balance > 1 && (
+                                  <div className="card-count-badge-bottom">x{balance}</div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>

@@ -24,6 +24,7 @@ contract CardPackFactory is ERC1155, Ownable {
     mapping(uint256 => Card) public cards;
     uint256 public cardCount;
     uint256 public packPrice = 0.01 ether;
+    mapping(address => uint256) public userPackNonce; // Nonce per user for better randomness
     
     // Card type probabilities (out of 100)
     uint256 public playerCardProbability = 60; // 60% chance for player card
@@ -86,8 +87,19 @@ contract CardPackFactory is ERC1155, Ownable {
     function openPack() external payable {
         require(msg.value >= packPrice, "Insufficient payment");
         
+        // Increment user's pack nonce for better randomness
+        userPackNonce[msg.sender]++;
+        
         // Pseudo-random selection (for demo - in production use Chainlink VRF)
-        uint256 random = uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao, msg.sender, cardCount)));
+        // Include nonce to ensure uniqueness even in same block
+        uint256 random = uint256(keccak256(abi.encodePacked(
+            block.timestamp, 
+            block.prevrandao, 
+            msg.sender, 
+            userPackNonce[msg.sender],
+            cardCount,
+            block.number
+        )));
         
         // Determine card type
         uint256 typeRoll = random % 100;

@@ -51,6 +51,36 @@
   gap: 12px;
 }
 
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 16px;
+}
+
+.nav-link {
+  background: transparent;
+  color: #667eea;
+  border: 2px solid #667eea;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.nav-link:hover {
+  background: rgba(102, 126, 234, 0.1);
+  transform: translateY(-1px);
+}
+
+.nav-link.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: transparent;
+}
+
 .connect-wallet-btn {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
@@ -432,10 +462,9 @@
   display: grid;
   grid-template-columns: 1fr 2fr;
   gap: 24px;
-  margin: 24px 0;
-  align-items: start;
-  padding-left: 0;
-  margin-left: -20px; /* Move left column more to the left */
+  margin: 24px auto;
+  max-width: 1200px;
+  align-items: stretch;
 }
 
 .main-column-left {
@@ -450,6 +479,14 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* Make Submit Prediction card match NFT card height */
+.main-column-right > .card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .welcome-card {
@@ -551,9 +588,43 @@
 .column-right .card > div:last-child {
   flex: 1;
   overflow-y: auto;
+  overflow-x: visible;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* Ensure all content in submit prediction card is visible */
+.column-right .card {
+  overflow-y: auto;
+  overflow-x: visible;
+}
+
+/* Ensure dropdowns are clickable */
+.column-right select {
+  z-index: 10;
+  position: relative;
+  background: white;
+}
+
+/* Ensure cards are clickable */
+.trading-card-container {
+  pointer-events: auto;
+}
+
+/* Ensure inner card elements don't block clicks */
+.trading-card-container .trading-card {
+  pointer-events: none;
+}
+
+.trading-card-container .trading-card * {
+  pointer-events: none;
+}
+
+/* Ensure clickable cards are actually clickable */
+.trading-card-container {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Trading Cards */
@@ -612,6 +683,73 @@
 .trading-cards-grid {
   contain: layout;
   position: relative;
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: visible;
+  gap: 16px;
+  /* Hide scrollbar */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.trading-cards-grid::-webkit-scrollbar {
+  display: none;
+}
+
+/* Collection page grid - wrap cards instead of scrolling */
+.trading-cards-grid.collection-grid {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  overflow-y: visible;
+  justify-content: flex-start;
+  white-space: normal;
+}
+
+/* Collection grid cards should not have negative margins */
+.trading-cards-grid.collection-grid .trading-card-container {
+  margin-left: 0;
+  margin-right: 16px;
+  margin-bottom: 16px;
+}
+
+/* Fade gradient overlay on the right side - left of pack card */
+.cards-fade-overlay {
+  position: absolute;
+  right: 200px; /* Position to the left of the pack card (200px card width + 20px margin) */
+  top: 0;
+  width: 110px;
+  height: 100%;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 1));
+  pointer-events: none;
+  z-index: 8;
+}
+
+/* Pack New Card - Always on the right */
+.trading-cards-grid .pack-new-card {
+  position: sticky;
+  right: 0;
+  top: 0;
+  margin-left: auto !important;
+  margin-right: 0 !important;
+  flex-shrink: 0;
+  z-index: 6; /* Above the fade gradient */
+  align-self: flex-start; /* Align to top */
+  order: 9999; /* Ensure it's always last */
+}
+
+.trading-cards-grid .pack-new-card-inner {
+  border: 2px solid #667eea;
+  background: white;
+  opacity: 1;
+  transition: all 0.3s ease;
+}
+
+.trading-cards-grid .pack-new-card:hover .pack-new-card-inner {
+  border-color: #764ba2;
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
+  transform: translateY(-4px);
 }
 
 .trading-card-container {
@@ -1146,3 +1284,207 @@
   }
 }
 
+
+
+/* Collection Page */
+.collection-page {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.filter-btn {
+  background: #f0f0f0;
+  color: #666;
+  border: 2px solid transparent;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.filter-btn:hover {
+  background: #e0e0e0;
+  transform: translateY(-1px);
+}
+
+.filter-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+/* Loading Screen */
+.loading-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.loading-spinner {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.spinner-circle {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  animation: spinnerBounce 1.4s ease-in-out infinite;
+}
+
+.spinner-circle:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.spinner-circle:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.spinner-circle:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes spinnerBounce {
+  0%, 80%, 100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+}
+
+.loading-text {
+  color: white;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 40px 0;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.loading-tips-container {
+  position: relative;
+  height: 60px;
+  width: 100%;
+  max-width: 500px;
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.loading-tip {
+  position: absolute;
+  color: white;
+  font-size: 16px;
+  font-weight: 500;
+  text-align: center;
+  padding: 0 20px;
+  opacity: 0;
+  transform: translateY(20px);
+  animation: tipFadeInOut 3s ease-in-out infinite;
+}
+
+@keyframes tipFadeInOut {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  85% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+}
+
+/* Pack Opening Loading Overlay */
+.pack-opening-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
+  animation: fadeIn 0.2s ease-in;
+}
+
+.pack-opening-spinner {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  margin-bottom: 24px;
+}
+
+.spinner-ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border: 4px solid rgba(255, 255, 255, 0.2);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.pack-opening-text {
+  color: white;
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  animation: pulse 2s ease-in-out infinite;
+}
