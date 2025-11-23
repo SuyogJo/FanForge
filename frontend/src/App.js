@@ -3,6 +3,18 @@ import { ethers } from 'ethers';
 import './App.css';
 import { CONTRACT_ADDRESSES, NETWORK_CONFIG } from './config';
 
+// Helper function to get level colors
+function getLevelColor(level) {
+  const colors = {
+    1: "#95a5a6, #7f8c8d", // Gray
+    2: "#3498db, #2980b9", // Blue
+    3: "#9b59b6, #8e44ad", // Purple
+    4: "#e67e22, #d35400", // Orange
+    5: "#f1c40f, #f39c12"  // Gold
+  };
+  return colors[level] || colors[1];
+}
+
 // Import contract ABIs (these would be generated from compilation)
 // For now, we'll use minimal interfaces
 const CARD_PACK_FACTORY_ABI = [
@@ -80,6 +92,30 @@ function App() {
   const [fanTokenId, setFanTokenId] = useState(null);
   const [fanNFTMetadata, setFanNFTMetadata] = useState(null);
   const [myPredictions, setMyPredictions] = useState([]);
+  // Load removedPredictionIds from localStorage on init
+  const [removedPredictionIds, setRemovedPredictionIds] = useState(() => {
+    try {
+      const saved = localStorage.getItem('fanforge_removedPredictionIds');
+      if (saved) {
+        return new Set(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.warn('Failed to load removedPredictionIds from localStorage:', e);
+    }
+    return new Set();
+  });
+  // Load markedCards from localStorage on init
+  const [markedCards, setMarkedCards] = useState(() => {
+    try {
+      const saved = localStorage.getItem('fanforge_markedCards');
+      if (saved) {
+        return new Set(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.warn('Failed to load markedCards from localStorage:', e);
+    }
+    return new Set();
+  });
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(false);
@@ -89,7 +125,7 @@ function App() {
   const [success, setSuccess] = useState(null);
   const [openedCard, setOpenedCard] = useState(null);
   const [showCardModal, setShowCardModal] = useState(false);
-  const [currentView, setCurrentView] = useState("home"); // "home" or "collection"
+  const [currentView, setCurrentView] = useState("home"); // "home", "collection", or "leaderboard"
   const [collectionFilter, setCollectionFilter] = useState("all"); // "all", "player", "matchevent"
   const [lastPackTime, setLastPackTime] = useState(0);
   const [loadingTipIndex, setLoadingTipIndex] = useState(0);
@@ -620,10 +656,16 @@ function App() {
       try {
         packPrice = await cardPackFactory.packPrice();
         console.log("Pack price from contract:", ethers.formatEther(packPrice), "CHZ");
+        // Validate that we got a valid price
+        if (!packPrice || packPrice === 0n) {
+          throw new Error("Contract returned invalid pack price");
+        }
       } catch (e) {
         console.warn("Could not get pack price from contract, using default:", e);
         // Fallback to default if packPrice() doesn't exist in ABI
-        packPrice = ethers.parseEther("0.01");
+        // NOTE: This should match the contract's packPrice. Update this if contract is redeployed.
+        packPrice = ethers.parseEther("1");
+        console.warn("Using fallback pack price:", ethers.formatEther(packPrice), "CHZ");
       }
       
       // Verify contract has cards initialized
@@ -634,8 +676,16 @@ function App() {
         if (cardCount === 0n) {
           throw new Error("Contract has no cards initialized. Cards must be initialized before opening packs. Please contact the contract owner.");
         }
+        // Check if we can get at least one card to verify initialization
+        try {
+          const testCard = await cardPackFactory.getCard(1);
+          console.log("Test card retrieved:", testCard.name);
+        } catch (cardErr) {
+          console.warn("Could not retrieve test card:", cardErr);
+          throw new Error("Contract cards are not properly initialized. Please contact the contract owner.");
+        }
       } catch (checkErr) {
-        if (checkErr.message && checkErr.message.includes("no cards")) {
+        if (checkErr.message && (checkErr.message.includes("no cards") || checkErr.message.includes("not properly initialized"))) {
           throw checkErr;
         }
         console.warn("Could not verify card count:", checkErr);
@@ -643,15 +693,22 @@ function App() {
       
       // Check user balance (including gas)
       const balance = await provider.getBalance(account);
-      const estimatedGas = ethers.parseEther("0.001"); // Rough gas estimate
+      // Use a more conservative gas estimate (95415 gas used * 2.5 gwei = ~0.00024 CHZ, but use 0.002 to be safe)
+      const estimatedGas = ethers.parseEther("0.002"); // More conservative gas estimate
       const totalNeeded = packPrice + estimatedGas;
       console.log("User balance:", ethers.formatEther(balance), "CHZ");
       console.log("Pack price:", ethers.formatEther(packPrice), "CHZ");
       console.log("Estimated gas:", ethers.formatEther(estimatedGas), "CHZ");
       console.log("Total needed:", ethers.formatEther(totalNeeded), "CHZ");
+      console.log("Balance check:", balance.toString(), ">=", totalNeeded.toString(), "?", balance >= totalNeeded);
       
       if (balance < totalNeeded) {
-        throw new Error(`Insufficient balance. You have ${ethers.formatEther(balance)} CHZ, but need at least ${ethers.formatEther(totalNeeded)} CHZ (${ethers.formatEther(packPrice)} CHZ for pack + gas fees).`);
+        throw new Error(`Insufficient balance. You have ${ethers.formatEther(balance)} CHZ, but need at least ${ethers.formatEther(totalNeeded)} CHZ (${ethers.formatEther(packPrice)} CHZ for pack + ~${ethers.formatEther(estimatedGas)} CHZ for gas fees).`);
+      }
+      
+      // Double-check balance is sufficient for pack price alone
+      if (balance < packPrice) {
+        throw new Error(`Insufficient balance for pack. You have ${ethers.formatEther(balance)} CHZ, but need ${ethers.formatEther(packPrice)} CHZ for the pack.`);
       }
       
       // Estimate gas first to catch revert reasons with better error messages
@@ -688,6 +745,13 @@ function App() {
         await new Promise(resolve => setTimeout(resolve, waitTime));
       }
       setLastPackTime(Date.now());
+      
+      // Final balance check right before sending
+      const finalBalance = await provider.getBalance(account);
+      console.log("Final balance check before transaction:", ethers.formatEther(finalBalance), "CHZ");
+      if (finalBalance < packPrice) {
+        throw new Error(`Insufficient balance. You have ${ethers.formatEther(finalBalance)} CHZ, but need ${ethers.formatEther(packPrice)} CHZ for the pack.`);
+      }
       
       console.log(`Opening pack with value: ${ethers.formatEther(packPrice)} CHZ`);
       
@@ -732,26 +796,108 @@ function App() {
         
         // Check if we have a receipt with status 0 (reverted)
         if (waitError.receipt && waitError.receipt.status === 0) {
-          // Try to call the contract to get revert reason
+          // Try multiple methods to get the revert reason
           try {
-            // Try to simulate the call again to get the revert reason
+            // Method 1: Try to simulate the call using staticCall
             await cardPackFactory.openPack.staticCall({ value: packPrice });
           } catch (simulateError) {
+            console.error("Simulate error:", simulateError);
+            
+            // Try to extract reason from error object
             if (simulateError.reason) {
               revertReason = simulateError.reason;
             } else if (simulateError.data) {
               try {
+                // Try to decode using parseError
                 const decoded = cardPackFactory.interface.parseError(simulateError.data);
                 revertReason = decoded?.name || revertReason;
-              } catch (e) {
-                revertReason = simulateError.message || revertReason;
+              } catch (parseErr) {
+                // If parseError fails, try to decode as a revert string
+                try {
+                  // Try to decode as a string revert reason (Error(string))
+                  const errorSig = "0x08c379a0"; // Error(string) selector
+                  if (simulateError.data && simulateError.data.startsWith(errorSig)) {
+                    const iface = new ethers.Interface(["function Error(string)"]);
+                    const decoded = iface.decodeFunctionData("Error", simulateError.data);
+                    revertReason = decoded[0] || revertReason;
+                  } else {
+                    // Try to decode as a Panic(uint256) or other error
+                    const panicSig = "0x4e487b71"; // Panic(uint256) selector
+                    if (simulateError.data && simulateError.data.startsWith(panicSig)) {
+                      revertReason = "Contract panic - likely due to invalid state or arithmetic error";
+                    }
+                  }
+                } catch (e2) {
+                  console.error("Failed to decode error data:", e2);
+                }
+                
+                // Try to get message from error
+                if (simulateError.message) {
+                  // Extract revert reason from message if it contains "revert"
+                  const match = simulateError.message.match(/revert\s+(.+?)(?:\s*\(|$)/i) ||
+                               simulateError.message.match(/execution reverted:\s*(.+?)(?:\s*\(|$)/i) ||
+                               simulateError.message.match(/reverted\s+with\s+reason\s+string\s+['"](.+?)['"]/i);
+                  if (match) {
+                    revertReason = match[1];
+                  } else {
+                    revertReason = simulateError.message;
+                  }
+                }
               }
             } else if (simulateError.message) {
-              revertReason = simulateError.message;
+              // Extract revert reason from message
+              const match = simulateError.message.match(/revert\s+(.+?)(?:\s*\(|$)/i) || 
+                           simulateError.message.match(/execution reverted:\s*(.+?)(?:\s*\(|$)/i) ||
+                           simulateError.message.match(/reverted\s+with\s+reason\s+string\s+['"](.+?)['"]/i);
+              revertReason = match ? match[1] : simulateError.message;
             }
           }
           
-          throw new Error(`Transaction reverted: ${revertReason}. This may be due to insufficient balance, contract state issues, or network problems. Please wait a moment and try again.`);
+          // Method 2: Try using provider.call to simulate the transaction
+          if (revertReason === "Unknown error") {
+            try {
+              const callData = cardPackFactory.interface.encodeFunctionData("openPack", []);
+              const result = await provider.call({
+                to: CONTRACT_ADDRESSES.CardPackFactory,
+                data: callData,
+                value: packPrice,
+                from: account
+              });
+              // If we get here, the call succeeded, which is unexpected
+              console.warn("Provider call succeeded but transaction reverted - this is unusual");
+            } catch (callError) {
+              console.error("Provider call error:", callError);
+              if (callError.reason) {
+                revertReason = callError.reason;
+              } else if (callError.data) {
+                // Try to decode the error data
+                try {
+                  const errorSig = "0x08c379a0"; // Error(string)
+                  if (callError.data && callError.data.startsWith(errorSig)) {
+                    const iface = new ethers.Interface(["function Error(string)"]);
+                    const decoded = iface.decodeFunctionData("Error", callError.data);
+                    revertReason = decoded[0];
+                  }
+                } catch (e) {
+                  // Ignore decode errors
+                }
+              }
+            }
+          }
+          
+          // Check if it's an insufficient payment error
+          if (revertReason.toLowerCase().includes("insufficient payment") || 
+              revertReason.toLowerCase().includes("insufficient funds")) {
+            revertReason = `Insufficient payment. The contract expects ${ethers.formatEther(packPrice)} CHZ. Please check the pack price.`;
+          }
+          
+          // Check for card-related errors
+          if (revertReason.toLowerCase().includes("no cards") || 
+              revertReason.toLowerCase().includes("card")) {
+            revertReason = `Card selection error: ${revertReason}. The contract may not have cards initialized.`;
+          }
+          
+          throw new Error(`Transaction reverted: ${revertReason}. This may be due to insufficient balance (need ${ethers.formatEther(packPrice)} CHZ), incorrect payment amount, contract state issues, or network problems. Please wait a moment and try again.`);
         }
         
         if (waitError.message && waitError.message.includes("timeout")) {
@@ -867,12 +1013,12 @@ function App() {
       // Provide more helpful error messages
       if (err.code === "CALL_EXCEPTION" || err.receipt?.status === 0) {
         errorMessage = "Transaction failed. This could be due to:\n" +
-          "1. Insufficient balance (need 0.01 CHZ + gas fees)\n" +
+          "1. Insufficient balance (need 1 CHZ + gas fees)\n" +
           "2. Contract not properly initialized\n" +
           "3. Network issues\n\n" +
           "Please check your balance and try again.";
       } else if (err.message?.includes("insufficient funds") || err.message?.includes("Insufficient")) {
-        errorMessage = `Insufficient funds. You need at least 0.01 CHZ + gas fees to open a pack.`;
+        errorMessage = `Insufficient funds. You need at least 1 CHZ + gas fees to open a pack.`;
       } else if (err.message?.includes("No cards")) {
         errorMessage = "Contract has no cards available. Please contact the contract owner.";
       }
@@ -1232,20 +1378,23 @@ function App() {
 
       setSuccess(`Card marked as ${isCorrect ? "correct" : "incorrect"}! NFT stats updated.`);
       
-      // Remove predictions that contain this card from the match
-      setMyPredictions(prevPredictions => {
-        return prevPredictions.filter(pred => {
-          // If this prediction is for a different match, keep it
-          if (pred.matchId !== matchId.toString()) {
-            return true;
-          }
-          // If this prediction contains the marked card, remove it
-          const hasCard = pred.cards.some(card => card.id === cardId.toString());
-          return !hasCard;
-        });
+      // Mark this card as resolved
+      // The useEffect will automatically remove predictions where all cards are marked
+      const cardKey = `${matchId}:${cardId}`;
+      setMarkedCards(prev => {
+        const newSet = new Set(prev);
+        newSet.add(cardKey);
+        // Persist to localStorage
+        try {
+          localStorage.setItem('fanforge_markedCards', JSON.stringify(Array.from(newSet)));
+        } catch (e) {
+          console.warn('Failed to save markedCards to localStorage:', e);
+        }
+        return newSet;
       });
       
       // Reload user data to show updated stats (without loading screen)
+      // The useEffect will handle removing predictions where all cards are now marked
       await loadUserData(signer, account, false);
     } catch (err) {
       console.error("Error marking card result:", err);
@@ -1277,6 +1426,47 @@ function App() {
     }
   }, [account]);
 
+  // Automatically remove predictions where all cards are marked
+  useEffect(() => {
+    if (myPredictions.length === 0 || markedCards.size === 0) {
+      return;
+    }
+
+    setRemovedPredictionIds(prevRemoved => {
+      const newRemoved = new Set(prevRemoved);
+      let updated = false;
+
+      myPredictions.forEach(pred => {
+        // Skip if already removed
+        if (newRemoved.has(pred.predictionId)) {
+          return;
+        }
+
+        // Check if all cards in this prediction have been marked
+        const allCardsMarked = pred.cards.every(card => {
+          const cardKey = `${pred.matchId}:${card.id}`;
+          return markedCards.has(cardKey);
+        });
+
+        if (allCardsMarked) {
+          newRemoved.add(pred.predictionId);
+          updated = true;
+        }
+      });
+
+      // Persist to localStorage
+      if (updated) {
+        try {
+          localStorage.setItem('fanforge_removedPredictionIds', JSON.stringify(Array.from(newRemoved)));
+        } catch (e) {
+          console.warn('Failed to save removedPredictionIds to localStorage:', e);
+        }
+      }
+
+      return updated ? newRemoved : prevRemoved;
+    });
+  }, [myPredictions, markedCards]);
+
   // Rotate loading tips
   useEffect(() => {
     if (initialLoading) {
@@ -1288,7 +1478,7 @@ function App() {
   }, [initialLoading, loadingTips.length]);
 
   return (
-    <div className="App">
+    <div className="App" style={{ backgroundImage: `url(${process.env.PUBLIC_URL}/assets/background.svg)` }}>
       {/* Initial Loading Screen - Don't show if pack is opening or submitting prediction */}
       {account && initialLoading && !packOpening && !submittingPrediction && (
         <div className="loading-screen">
@@ -1330,8 +1520,11 @@ function App() {
       <header className="app-header">
         <div className="header-content">
           <div className="logo">
-            <span className="logo-icon">🏆</span>
-            <h1 className="logo-text">FanForge</h1>
+            <img 
+              src={`${process.env.PUBLIC_URL}/assets/logo.png`} 
+              alt="FanForge Logo" 
+              className="logo-image"
+            />
           </div>
           <div className="header-actions">
             {account && (
@@ -1347,6 +1540,12 @@ function App() {
                   onClick={() => setCurrentView("collection")}
                 >
                   My Collection
+                </button>
+                <button 
+                  className={`nav-link ${currentView === "leaderboard" ? "active" : ""}`}
+                  onClick={() => setCurrentView("leaderboard")}
+                >
+                  Leaderboard
                 </button>
               </nav>
             )}
@@ -1373,9 +1572,13 @@ function App() {
         {!account && (
           <div className="hero-section">
             <div className="hero-content">
-              <h1 className="hero-title animate-fade-in" style={{ textAlign: "center" }}>
-                FanForge
-              </h1>
+              <div className="hero-logo animate-fade-in" style={{ textAlign: "center", display: "flex", justifyContent: "center" }}>
+                <img 
+                  src={`${process.env.PUBLIC_URL}/assets/logo.png`} 
+                  alt="FanForge Logo" 
+                  className="hero-logo-image"
+                />
+              </div>
               <p className="hero-subtitle animate-fade-in-delay" style={{ textAlign: "center", maxWidth: "800px", margin: "0 auto" }}>
                 Collect. Predict. Win. Trade prediction cards and forecast sport match outcomes in the ultimate fan experience. Participate in a sports card collectible experience like never before. Use your cards to predict your favorite team's matches.
               </p>
@@ -1862,7 +2065,7 @@ function App() {
                                 borderRadius: "8px", 
                                 marginBottom: "12px" 
                               }}>
-                                <p style={{ margin: "0 0 8px 0", fontWeight: "600" }}>
+                                <p style={{ margin: "0 0 8px 0", fontWeight: "600", color: "#667eea" }}>
                                   Selected Match Event Cards: {selectedMatchEventCards.length}
                                 </p>
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
@@ -2119,15 +2322,18 @@ function App() {
             {/* My Predictions Section */}
             <div style={{ width: "100%", maxWidth: "1200px", margin: "24px auto 0 auto" }}>
               <div className="card">
-              <h2>📊 My Predictions ({myPredictions.length})</h2>
-              {myPredictions.length === 0 ? (
+              <h2>📊 My Predictions ({myPredictions.filter(p => !removedPredictionIds.has(p.predictionId)).length})</h2>
+              {myPredictions.filter(p => !removedPredictionIds.has(p.predictionId)).length === 0 ? (
                 <p>You haven't made any predictions yet. Submit a prediction to see it here!</p>
               ) : (
                 <div>
                   {(() => {
+                    // Filter out removed predictions first
+                    const visiblePredictions = myPredictions.filter(p => !removedPredictionIds.has(p.predictionId));
+                    
                     // Group predictions by matchId
                     const groupedPredictions = {};
-                    myPredictions.forEach(prediction => {
+                    visiblePredictions.forEach(prediction => {
                       const matchId = prediction.matchId;
                       if (!groupedPredictions[matchId]) {
                         groupedPredictions[matchId] = [];
@@ -2194,21 +2400,21 @@ function App() {
                           style={{ 
                             margin: "16px 0", 
                             padding: "16px", 
-                            background: statusBg,
+                            background: "#f0f4ff",
                             borderRadius: "8px",
                             border: `2px solid ${statusColor}`
                           }}
                         >
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "12px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "12px", color: "#667eea" }}>
                             <div style={{ flex: 1 }}>
                               <h3 style={{ margin: 0 }}>
                                 {firstPrediction.teamA} vs {firstPrediction.teamB}
                               </h3>
-                              <p style={{ fontSize: "12px", color: "#666", margin: "4px 0" }}>
+                              <p style={{ fontSize: "12px", color: "#667eea", margin: "4px 0" }}>
                                 Match #{matchId} • {predictions.length} prediction{predictions.length > 1 ? 's' : ''}
                               </p>
                             </div>
-                            <div style={{ textAlign: "right" }}>
+                            <div style={{ textAlign: "right", color: "#667eea" }}>
                               <span style={{ 
                                 padding: "4px 12px", 
                                 background: statusColor, 
@@ -2220,7 +2426,7 @@ function App() {
                                 {statusText}
                               </span>
                               {pendingCount > 0 && settledCount > 0 && (
-                                <div style={{ fontSize: "11px", color: "#666", marginTop: "4px" }}>
+                                <div style={{ fontSize: "11px", color: "#667eea", marginTop: "4px" }}>
                                   {pendingCount} pending
                                 </div>
                               )}
@@ -2256,14 +2462,14 @@ function App() {
                           {/* Show pending predictions count */}
                           {pendingCount > 0 && (
                             <div style={{ marginBottom: "12px", padding: "8px", background: "rgba(255,193,7,0.2)", borderRadius: "6px" }}>
-                              <p style={{ margin: 0, fontSize: "14px" }}>
+                              <p style={{ margin: 0, fontSize: "14px", color: "#667eea" }}>
                                 ⏳ {pendingCount} prediction{pendingCount > 1 ? 's' : ''} waiting for match settlement
                               </p>
                             </div>
                           )}
                           
                           <div style={{ marginTop: "12px" }}>
-                            <p style={{ margin: "8px 0", fontWeight: "600" }}>
+                            <p style={{ margin: "8px 0", fontWeight: "600", color: "#667eea" }}>
                               All Cards Used ({allCards.length} unique card{allCards.length > 1 ? 's' : ''}):
                               {isAdmin && isPending && (
                                 <span style={{ fontSize: "12px", color: "#666", marginLeft: "8px" }}>
@@ -2271,7 +2477,7 @@ function App() {
                                 </span>
                               )}
                             </p>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" , color: "#667eea" }}>
                               {allCards.map((card, cardIndex) => {
                                 // Check if this card's prediction is already marked
                                 const cardPrediction = predictions.find(p => 
@@ -2526,10 +2732,144 @@ function App() {
             </div>
           </div>
         )}
+
+        {/* Leaderboard Page */}
+        {account && currentView === "leaderboard" && (
+          <div className="leaderboard-page" style={{ width: "100%", maxWidth: "1200px", margin: "24px auto" }}>
+            <div className="card">
+              <h1 style={{ margin: "0 0 24px 0" }}>🏆 Leaderboard</h1>
+              <p style={{ color: "#666", marginBottom: "24px" }}>
+                Top players ranked by their Fan NFT level
+              </p>
+              
+              <div className="leaderboard-table">
+                <div className="leaderboard-header" style={{ 
+                  display: "grid", 
+                  gridTemplateColumns: "60px 1fr 120px 120px 120px",
+                  gap: "16px",
+                  padding: "12px 16px",
+                  background: "rgba(102, 126, 234, 0.1)",
+                  borderRadius: "8px",
+                  marginBottom: "8px",
+                  fontWeight: "600",
+                  fontSize: "14px"
+                }}>
+                  <div>Rank</div>
+                  <div>Address</div>
+                  <div style={{ textAlign: "center" }}>Level</div>
+                  <div style={{ textAlign: "center" }}>Correct</div>
+                  <div style={{ textAlign: "center" }}>Total</div>
+                </div>
+
+                {(() => {
+                  // Create dummy leaderboard data
+                  const dummyData = [
+                    { address: "0x1234567890123456789012345678901234567890", level: 5, correct: 15, total: 20, teamName: "Lakers" },
+                    { address: "0x2345678901234567890123456789012345678901", level: 5, correct: 14, total: 18, teamName: "Warriors" },
+                    { address: "0x3456789012345678901234567890123456789012", level: 4, correct: 12, total: 15, teamName: "Barcelona" },
+                    { address: account, level: fanStats ? fanStats.level : 3, correct: fanStats ? Number(fanStats.correctPredictions) : 8, total: fanStats ? Number(fanStats.totalPredictions) : 12, teamName: fanStats ? fanStats.teamName : "Your Team" },
+                    { address: "0x4567890123456789012345678901234567890123", level: 3, correct: 9, total: 12, teamName: "Real Madrid" },
+                    { address: "0x5678901234567890123456789012345678901234", level: 3, correct: 8, total: 11, teamName: "Patriots" },
+                    { address: "0x6789012345678901234567890123456789012345", level: 2, correct: 6, total: 9, teamName: "Chiefs" },
+                    { address: "0x7890123456789012345678901234567890123456", level: 2, correct: 5, total: 8, teamName: "PSG" },
+                    { address: "0x8901234567890123456789012345678901234567", level: 2, correct: 4, total: 7, teamName: "Manchester City" },
+                    { address: "0x9012345678901234567890123456789012345678", level: 1, correct: 2, total: 5, teamName: "Rockets" },
+                  ];
+
+                  // Sort by level (descending), then by correct predictions (descending)
+                  const sortedData = [...dummyData].sort((a, b) => {
+                    if (b.level !== a.level) {
+                      return b.level - a.level;
+                    }
+                    return b.correct - a.correct;
+                  });
+
+                  return sortedData.map((player, index) => {
+                    const isCurrentUser = player.address.toLowerCase() === account.toLowerCase();
+                    const rank = index + 1;
+                    
+                    return (
+                      <div
+                        key={player.address}
+                        className="leaderboard-row"
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "60px 1fr 120px 120px 120px",
+                          gap: "16px",
+                          padding: "16px",
+                          background: isCurrentUser ? "rgba(102, 126, 234, 0.15)" : index % 2 === 0 ? "rgba(0, 0, 0, 0.02)" : "transparent",
+                          borderRadius: "8px",
+                          marginBottom: "4px",
+                          border: isCurrentUser ? "2px solid #667eea" : "1px solid transparent",
+                          transition: "all 0.2s"
+                        }}
+                      >
+                        <div style={{ 
+                          fontWeight: "700", 
+                          fontSize: "18px",
+                          color: rank <= 3 ? "#ffd700" : "#666",
+                          display: "flex",
+                          alignItems: "center"
+                        }}>
+                          {rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`}
+                        </div>
+                        <div style={{ 
+                          display: "flex", 
+                          alignItems: "center",
+                          fontWeight: isCurrentUser ? "600" : "400"
+                        }}>
+                          <span style={{ 
+                            fontFamily: "monospace", 
+                            fontSize: "13px",
+                            color: isCurrentUser ? "#000000" : "#333"
+                          }}>
+                            {player.address.slice(0, 6)}...{player.address.slice(-4)}
+                          </span>
+                          {isCurrentUser && (
+                            <span style={{ 
+                              marginLeft: "8px", 
+                              padding: "2px 8px", 
+                              background: "#667eea", 
+                              color: "white", 
+                              borderRadius: "12px", 
+                              fontSize: "11px",
+                              fontWeight: "600"
+                            }}>
+                              You
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <span style={{
+                            padding: "4px 12px",
+                            background: `linear-gradient(135deg, ${getLevelColor(player.level)})`,
+                            color: "white",
+                            borderRadius: "20px",
+                            fontSize: "14px",
+                            fontWeight: "700"
+                          }}>
+                            Level {player.level}
+                          </span>
+                        </div>
+                        <div style={{ textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", color: "#28a745", fontWeight: "600" }}>
+                          {player.correct}
+                        </div>
+                        <div style={{ textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", color: "#000000" }}>
+                          {player.total}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 export default App;
+
 

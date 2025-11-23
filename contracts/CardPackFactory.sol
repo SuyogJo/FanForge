@@ -23,7 +23,7 @@ contract CardPackFactory is ERC1155, Ownable {
 
     mapping(uint256 => Card) public cards;
     uint256 public cardCount;
-    uint256 public packPrice = 0.01 ether;
+    uint256 public packPrice = 1 ether;
     mapping(address => uint256) public userPackNonce; // Nonce per user for better randomness
     
     // Card type probabilities (out of 100)

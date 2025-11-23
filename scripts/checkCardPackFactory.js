@@ -17,57 +17,63 @@ async function main() {
   const deployment = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
   const cardPackFactoryAddress = deployment.contracts.CardPackFactory;
 
+  console.log("\nCardPackFactory address:", cardPackFactoryAddress);
+
   const CardPackFactory = await hre.ethers.getContractFactory("CardPackFactory");
   const cardPackFactory = CardPackFactory.attach(cardPackFactoryAddress);
 
-  console.log("\n=== CardPackFactory State ===");
-  console.log("Address:", cardPackFactoryAddress);
-  
-  const cardCount = await cardPackFactory.cardCount();
-  console.log("Card Count:", cardCount.toString());
-  
+  // Check pack price
   const packPrice = await cardPackFactory.packPrice();
-  console.log("Pack Price:", hre.ethers.formatEther(packPrice), "CHZ");
-  
-  // Check each card
-  console.log("\n=== Cards ===");
-  for (let i = 1; i <= cardCount; i++) {
+  console.log("Pack price:", hre.ethers.formatEther(packPrice), "CHZ");
+
+  // Check card count
+  const cardCount = await cardPackFactory.cardCount();
+  console.log("Card count:", cardCount.toString());
+
+  if (cardCount === 0n) {
+    console.log("\n❌ ERROR: No cards initialized! This is the problem.");
+    console.log("Cards should be initialized in the constructor, but they're not.");
+    return;
+  }
+
+  // Check a few cards
+  console.log("\nChecking cards:");
+  for (let i = 1; i <= Math.min(Number(cardCount), 5); i++) {
     try {
       const card = await cardPackFactory.getCard(i);
-      // Handle BigInt cardType
-      let cardTypeValue = card.cardType;
-      if (typeof card.cardType === 'bigint') {
-        cardTypeValue = card.cardType.toString();
-      } else if (card.cardType && typeof card.cardType === 'object' && 'toString' in card.cardType) {
-        cardTypeValue = card.cardType.toString();
-      }
-      const cardType = (cardTypeValue === "0" || cardTypeValue === 0 || Number(cardTypeValue) === 0) ? "Player" : "MatchEvent";
-      console.log(`Card ${i}: ${card.name} (Type: ${cardType}, Rarity: ${card.rarity})`);
+      // Handle BigNumber or number for cardType
+      const cardTypeValue = typeof card.cardType === 'bigint' ? Number(card.cardType) : card.cardType;
+      const cardTypeStr = cardTypeValue === 0 ? "Player" : "MatchEvent";
+      console.log(`  Card ${i}: ${card.name} (Type: ${cardTypeStr}, Raw: ${cardTypeValue}, Rarity: ${card.rarity})`);
     } catch (e) {
-      console.log(`Card ${i}: Error - ${e.message}`);
+      console.log(`  Card ${i}: Error - ${e.message}`);
     }
   }
-  
-  // Check user's nonce
-  const userAddress = process.env.USER_ADDRESS || deployer.address;
-  const userNonce = await cardPackFactory.userPackNonce(userAddress);
-  console.log(`\nUser ${userAddress} pack nonce: ${userNonce.toString()}`);
-  
-  // Try to simulate opening a pack
-  console.log("\n=== Testing Pack Opening ===");
-  try {
-    await cardPackFactory.openPack.staticCall({ value: packPrice });
-    console.log("✓ Static call succeeded - pack opening should work");
-  } catch (e) {
-    console.log("✗ Static call failed:", e.message || e.reason || "Unknown error");
-    if (e.data) {
-      try {
-        const decoded = cardPackFactory.interface.parseError(e.data);
-        console.log("  Decoded error:", decoded?.name || "Unknown");
-      } catch (decodeErr) {
-        console.log("  Could not decode error data");
+
+  // Check player and match event card counts
+  let playerCount = 0;
+  let matchEventCount = 0;
+  for (let i = 1; i <= Number(cardCount); i++) {
+    try {
+      const card = await cardPackFactory.getCard(i);
+      // Handle BigNumber or number for cardType
+      const cardTypeValue = typeof card.cardType === 'bigint' ? Number(card.cardType) : card.cardType;
+      if (cardTypeValue === 0) {
+        playerCount++;
+      } else {
+        matchEventCount++;
       }
+    } catch (e) {
+      // Skip errors
     }
+  }
+  console.log(`\nPlayer cards: ${playerCount}`);
+  console.log(`Match event cards: ${matchEventCount}`);
+
+  if (playerCount === 0 || matchEventCount === 0) {
+    console.log("\n⚠️  WARNING: Missing card types! This could cause pack opening to fail.");
+  } else {
+    console.log("\n✅ Cards are properly initialized!");
   }
 }
 
@@ -77,4 +83,3 @@ main()
     console.error(error);
     process.exit(1);
   });
-

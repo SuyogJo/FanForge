@@ -3,9 +3,9 @@
   "chainId": "88882",
   "deployer": "0xE626779fdab19A728FF8454f7B56934d7952De57",
   "contracts": {
-    "CardPackFactory": "0x329da0F6a40aB518Df99D74B58D19ea9B06AD62B",
+    "CardPackFactory": "0xc4Ac7F2649216f1A82d9c6A261D072440127d094",
     "DynamicFanNFT": "0x318f18cF6788F360205c8fb5c825306fD84362E7",
-    "PredictionManager": "0x1Cc16D3f76463d5d7C1A3A46f664D10c8889b24D"
+    "PredictionManager": "0xB868DdF537F1d219E86419E4e269a65555349d97"
   },
-  "timestamp": "2025-11-23T06:04:11.055Z"
+  "timestamp": "2025-11-23T09:29:11.510Z"
 }
